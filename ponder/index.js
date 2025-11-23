@@ -9,6 +9,8 @@ document.getElementById('terminal').style.zIndex = 4;
 
 //通过?processURL=指定流程URL,直接加载 -2025.10.18
 const UPpu1 = new URLSearchParams(window.location.search).get('processURL');
+// 获取engine参数
+const engineParam = new URLSearchParams(window.location.search).get('engine');
 //to line34
 
 //添加表格
@@ -35,7 +37,24 @@ document.body.appendChild(CreatePage);
 if (UPpu1) {
   processURL = UPpu1;
   terminal.innerHTML = '通过?processURL=指定流程URL,直接加载:'+processURL;
-  ponderApiLoad().catch(error => {console.error('Failed to load ponder API:', error);});
+  
+  // 如果有engine参数，创建一个包含engine配置的itemData对象
+  let itemData = null;
+  if (engineParam) {
+    try {
+      // 尝试解析engine参数为JSON
+      const engineConfig = JSON.parse(decodeURIComponent(engineParam));
+      itemData = {
+        engine: engineConfig
+      };
+      terminal.innerHTML += '<br>检测到engine参数，使用指定的engine配置';
+    } catch (error) {
+      console.warn('无法解析engine参数:', error);
+      terminal.innerHTML += '<br>警告: engine参数格式不正确，将忽略';
+    }
+  }
+  
+  ponderApiLoad(itemData).catch(error => {console.error('Failed to load ponder API:', error);});
 }else{
   // 获取物品JSON数据
   const ItemJson = fetch('./ponder/item.json');
@@ -103,7 +122,8 @@ function addItemsToGrid(items) {
           const selectedItem = items[parseInt(itemIndex)];
           if (!selectedItem) return;
           processURL = selectedItem.process;
-          ponderApiLoad().catch(error => {console.error('Failed to load ponder API:', error);});
+          // 传递选中的物品数据
+          ponderApiLoad(selectedItem).catch(error => {console.error('Failed to load ponder API:', error);});
         });
       }
     });
@@ -155,7 +175,104 @@ function sf (n){
   loadinfo.textContent = n;
 }
 
-async function ponderApiLoad() {
+// HTML解析函数
+function processBootHtml(html) {
+  try {
+    // 创建一个临时容器元素
+    const tempContainer = document.createElement('div');
+    // 将获取到的HTML内容设置为临时容器的innerHTML
+    tempContainer.innerHTML = html;
+    
+    // 处理临时容器中的所有子元素
+    const children = Array.from(tempContainer.children);
+    let hasNonScriptElements = false;
+    let sectionContainer = null;
+    
+    children.forEach(child => {
+      if (child.tagName === 'SCRIPT') {
+        // 如果是script标签，直接添加到body中执行
+        const script = document.createElement('script');
+        if (child.src) {
+          script.src = child.src;
+        } else {
+          script.textContent = child.textContent;
+        }
+        if (child.type) script.type = child.type;
+        if (child.async) script.async = child.async;
+        if (child.defer) script.defer = child.defer;
+        document.body.appendChild(script);
+      } else {
+        // 对于非script标签，创建section容器
+        if (!hasNonScriptElements) {
+          hasNonScriptElements = true;
+          sectionContainer = document.createElement('section');
+          sectionContainer.className = 'boot-html-container';
+          document.body.appendChild(sectionContainer);
+        }
+        sectionContainer.appendChild(child.cloneNode(true));
+      }
+    });
+    
+    sf('boot.html内容已按规则处理并添加到body');
+  } catch (error) {
+    console.error('Failed to process boot HTML content:', error);
+  }
+}
+
+// 根据文件后缀名决定加载方式
+async function loadProcessByExtension(processUrl, itemData) {
+  // 获取文件后缀名，更加灵活地处理URL
+  let extension = '';
+  try {
+    // 尝试从URL中提取文件名和后缀
+    const urlParts = processUrl.split('/');
+    const fileName = urlParts[urlParts.length - 1];
+    const nameParts = fileName.split('.');
+    
+    // 如果有多个点，取最后一个作为后缀
+    if (nameParts.length > 1) {
+      extension = nameParts[nameParts.length - 1].toLowerCase();
+    }
+  } catch (error) {
+    console.warn('无法解析URL后缀:', error);
+  }
+  
+  // 如果是json文件，像现在一样加载
+  if (extension === 'json') {
+    window.Process = await loadFile(processUrl, 'json', true, '加载思索流程<span class="file-tag y ml">'+processUrl+'</span>');
+    return Process;
+  } 
+  // 如果没有后缀或者不是json，则必须使用boot配置
+  else {
+    // 如果不是json文件，检查itemData中是否有boot配置
+    if (itemData && itemData.boot) {
+      // 统一使用boot传入url的方式
+      let bootUrl = '';
+      
+      // 检查boot的类型
+      if (typeof itemData.boot === 'string') {
+        // 如果boot是字符串，直接作为URL
+        bootUrl = itemData.boot;
+      } else if (typeof itemData.boot === 'object' && itemData.boot.url) {
+        // 如果boot是对象且包含url属性，使用url属性
+        bootUrl = itemData.boot.url;
+      } else {
+        throw new Error('boot配置必须是字符串URL或包含url属性的对象');
+      }
+      
+      // 返回一个默认的Process对象，使用boot配置
+      return {
+        loader: {
+          boot: bootUrl
+        }
+      };
+    } else {
+      throw new Error('非JSON文件必须包含boot配置');
+    }
+  }
+}
+
+async function ponderApiLoad(itemData = null) {
   //先清除前面的打印
   loadBox.innerHTML = '';
   //渐显加载界面100ms
@@ -171,64 +288,70 @@ async function ponderApiLoad() {
   document.getElementById('options-page').remove();
   document.getElementById('app').remove();
 
-  //加载Process文件，调用/index-loadFile函数，读取文件内容得到ponderAPI地址
-  window.Process = await loadFile( processURL, 'json', true, '加载思索流程<span class="file-tag y ml">'+processURL+'</span>');
-  //获取boot
-  if (Process.loader.boot.html) {
-    loadFile(Process.loader.boot.html, 'html', true, '加载boot.html<span class="file-tag y ml">'+Process.loader.boot.html+'</span>')
-    .then(html => {
-      try {
-        // 创建一个临时容器元素
-        const tempContainer = document.createElement('div');
-        // 将获取到的HTML内容设置为临时容器的innerHTML
-        tempContainer.innerHTML = html;
-        
-        // 处理临时容器中的所有子元素
-        const children = Array.from(tempContainer.children);
-        let hasNonScriptElements = false;
-        let sectionContainer = null;
-        
-        children.forEach(child => {
-          if (child.tagName === 'SCRIPT') {
-            // 如果是script标签，直接添加到body中执行
-            const script = document.createElement('script');
-            if (child.src) {
-              script.src = child.src;
-            } else {
-              script.textContent = child.textContent;
-            }
-            if (child.type) script.type = child.type;
-            if (child.async) script.async = child.async;
-            if (child.defer) script.defer = child.defer;
-            document.body.appendChild(script);
-          } else {
-            // 对于非script标签，创建section容器
-            if (!hasNonScriptElements) {
-              hasNonScriptElements = true;
-              sectionContainer = document.createElement('section');
-              sectionContainer.className = 'boot-html-container';
-              document.body.appendChild(sectionContainer);
-            }
-            sectionContainer.appendChild(child.cloneNode(true));
-          }
-        });
-        
-        sf('boot.html内容已按规则处理并添加到body');
-      } catch (error) {
-        console.error('Failed to process boot HTML content:', error);
+  // 根据文件后缀名决定加载方式
+  try {
+    window.Process = await loadProcessByExtension(processURL, itemData);
+  } catch (error) {
+    console.error('Failed to load process:', error);
+    sf('加载失败: ' + error.message);
+    return;
+  }
+
+  // 处理boot
+  if (Process.loader.boot) {
+    let bootUrl = '';
+    
+    // 检查boot的类型
+    if (typeof Process.loader.boot === 'string') {
+      // 如果boot是字符串，直接作为URL
+      bootUrl = Process.loader.boot;
+    } else if (typeof Process.loader.boot === 'object' && Process.loader.boot.url) {
+      // 如果boot是对象且包含url属性，使用url属性
+      bootUrl = Process.loader.boot.url;
+    } else {
+      console.error('boot配置必须是字符串URL或包含url属性的对象:', Process.loader.boot);
+      sf('boot配置必须是字符串URL或包含url属性的对象: ' + JSON.stringify(Process.loader.boot));
+      return;
+    }
+    
+    // 获取boot文件的后缀
+    let bootExtension = '';
+    try {
+      const urlParts = bootUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1];
+      const nameParts = fileName.split('.');
+      
+      if (nameParts.length > 1) {
+        bootExtension = nameParts[nameParts.length - 1].toLowerCase();
       }
-    })
-    .catch(error => {
-      console.error('Failed to load boot HTML:', error);
-    });
-  } else if (Process.loader.boot.js) {
-    loadFile(Process.loader.boot.js, 'js', true, '加载boot.js<span class="file-tag y ml">'+Process.loader.boot.js+'</span>')
-    .catch(error => {
-      console.error('Failed to load boot.js:', error);
-    });
+    } catch (error) {
+      console.warn('无法解析boot URL后缀:', error);
+    }
+    
+    // 根据后缀加载不同类型的文件
+    if (bootExtension === 'js') {
+      loadFile(bootUrl, 'js', true, '加载boot.js<span class="file-tag y ml">'+bootUrl+'</span>')
+      .catch(error => {
+        console.error('Failed to load boot.js:', error);
+      });
+    } else if (bootExtension === 'html') {
+      loadFile(bootUrl, 'html', true, '加载boot.html<span class="file-tag y ml">'+bootUrl+'</span>')
+      .then(html => {
+        processBootHtml(html);
+      })
+      .catch(error => {
+        console.error('Failed to load boot HTML:', error);
+      });
+    } else {
+      // 默认尝试作为JS加载
+      loadFile(bootUrl, 'js', true, '加载boot<span class="file-tag y ml">'+bootUrl+'</span>')
+      .catch(error => {
+        console.error('Failed to load boot:', error);
+      });
+    }
   } else {
-    console.error('未知的boot类型且缺少js或html配置:', Process.loader.boot);
-    sf('未知的boot类型且缺少js或html配置: ' + JSON.stringify(Process.loader.boot));
+    console.error('缺少boot配置');
+    sf('缺少boot配置');
     return;
   }
   loadBox.innerHTML = '';

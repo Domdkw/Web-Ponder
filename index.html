@@ -42,7 +42,7 @@
         <div class="all">
           <button id="create" onclick="create()"><span class="goggles"></span>机械动力：思索</button>
           <button id="server" onclick="server(true)">服务器</button>
-          <button id="options" onclick="if(typeof options !== 'undefined') { options.show(); } else { console.error('Options object not defined'); }">选项</button>
+          <button id="options" onclick="options.show()">选项</button>
         </div>
         <div class="half">
           <button id="home_page" onclick="cd('https\:\/\/github.com/Domdkw/Web-Ponder', 'GitHub开源地址')">主页</button>
@@ -124,6 +124,7 @@
       <div class="setting-main">
         <div class="settings-container bt-scroll">
           <div class="setting-div General show">
+            <div class="setting-div-row">
             <div id="sti-imgMirror" class="setting-item select" data-type="select">
               <span class="setting-label">全景图镜像源</span>
               <select name="imgMirror-source">
@@ -131,6 +132,30 @@
                 <option value="jsDeliver" disabled>jsDeliver</option>
               </select>
             </div>
+            <div id="sti-panorama" class="setting-item select" data-type="select">
+              <span class="setting-label">指定全景图</span>
+              <span class="setting-remind">（随机选择时请保持随机选项选中）</span>
+              <select name="panorama-select">
+                <option value="none" selected>随机</option>
+                <option value="2412_day">2412_day</option>
+                <option value="2412_night">2412_night</option>
+                <option value="2501_day">2501_day</option>
+                <option value="2501_night">2501_night</option>
+                <option value="2502_null">2502_null</option>
+                <option value="create_null">create_null</option>
+              </select>
+            </div>
+            <div id="sti-panorama-fps" class="setting-item select" data-type="select">
+              <span class="setting-label">限制全景图帧数</span>
+              <span class="setting-remind">建议根据浏览器性能选择，过高可能导致性能问题（重启生效）</span>
+              <select name="panorama-fps-select">
+                <option value="10">10帧</option>
+                <option value="30" selected>30帧</option>
+                <option value="60">60帧</option>
+                <option value="120">120帧</option>
+              </select>
+            </div>
+            </div><div class="setting-div-row">
             <div id="sti-moreooops" class="setting-item checkbox" data-type="checkbox">
                 <span class="setting-label">启用更多ooops信息</span>
                 <label class="canClick"><input class="canClick" type="checkbox"></label>
@@ -151,19 +176,6 @@
                 <option value="en-US">English</option>
               </select>
             </div>
-            <div id="sti-panorama" class="setting-item select" data-type="select">
-              <span class="setting-label">指定全景图</span>
-              <span class="setting-remind">（随机选择时请保持随机选项选中）</span>
-              <select name="panorama-select">
-                <option value="none" selected>随机</option>
-                <option value="2412_day">2412_day</option>
-                <option value="2412_night">2412_night</option>
-                <option value="2501_day">2501_day</option>
-                <option value="2501_night">2501_night</option>
-                <option value="2502_null">2502_null</option>
-                <option value="create_null">create_null</option>
-              </select>
-            </div>
             <div id="sti-audio-file" class="setting-item select" data-type="select">
               <span class="setting-label" data-lang="audio_file_label">指定背景音乐</span>
               <span class="setting-remind" data-lang="audio_file_remind">（随机选择时请保持随机选项选中）</span>
@@ -176,18 +188,10 @@
                 <option value="Infinite Amethyst - Lena Raine、Minecraft.mp3">Infinite Amethyst</option>
               </select>
             </div>
-            <div id="sti-panorama-fps" class="setting-item select" data-type="select">
-              <span class="setting-label">限制全景图帧数</span>
-              <span class="setting-remind">建议根据浏览器性能选择，过高可能导致性能问题（重启生效）</span>
-              <select name="panorama-fps-select">
-                <option value="10">10帧</option>
-                <option value="30" selected>30帧</option>
-                <option value="60">60帧</option>
-                <option value="120">120帧</option>
-              </select>
             </div>
           </div>
           <div class="setting-div Browser">
+            <div class="setting-div-row">
             <div class="sti-LS-div setting-child sti-LS-info-sti">
               <button class="sti-LS-info-btn tab canClick" onclick="options.btn.showLSInfoSti()">查看LocalStorage.sti</button>
             </div>
@@ -204,6 +208,7 @@
             <style>#service-provider>*{margin:2rem}</style>
             <div id="service-provider" style="display:flex;flex-wrap:wrap;justify-content:space-evenly;align-items:center;min-height:10rem;">
               <button onclick="document.getElementById('service-provider').innerHTML=service_provider">服务提供商</button>
+            </div>
             </div>
           </div>
           <div class="setting-div Ponder">

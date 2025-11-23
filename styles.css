@@ -423,13 +423,16 @@ main .outside-btn{
   float: right;
 }
 .settings-container {
-  background-color: #00000078;
   padding: .2rem;
   margin-left: 5px;
   overflow-y: auto;
 }
 .setting-div:not(.show) {
   display: none;
+}
+.setting-div-row{
+  background-color: #00000078;
+  margin-bottom: .8rem;
 }
 .setting-item, .setting-child{
   margin-bottom: .2rem;

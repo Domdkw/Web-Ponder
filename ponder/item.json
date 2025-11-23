@@ -2,7 +2,9 @@
     {
         "name":"onlypanorama",
         "icon":"/ponder/minecraft/item/barrier.png",
-        "process":"/ponder/process/onlypanorama.json"
+        "process":"/ponder/process/onlypanorama.null",
+        "description":"OnlyPanorama",
+        "boot":"/ponder/engine/domdkw/onlypanorama.boot.js"
     },
     {
         "name":"dirt",

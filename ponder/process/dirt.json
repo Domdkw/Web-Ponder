@@ -8,9 +8,7 @@
 },
 "loader":{
   "indexes":"/ponder/engine/domdkw/v1/1.21.6.texture.mapping.json",
-  "boot":{
-    "html":"/ponder/engine/domdkw/v1/nogltf.boot.html"
-  },
+  "boot":"/ponder/engine/domdkw/v1/nogltf.boot.html",
   "block":[
     "minecraft:dirt",
     "minecraft:mossy_stone_bricks",
