@@ -10,6 +10,13 @@
         "name":"dirt",
         "icon":"/ponder/minecraft/item/block/dirt.png",
         "process":"/ponder/process/dirt.json"
+    },
+    {
+        "name":"andesite_alloy",
+        "icon":"https://jsd.onmicrosoft.cn/gh/Creators-of-Create/Create@mc1.21.1%2Fdev/src/main/resources/assets/create/textures/item/andesite_alloy.png",
+        "process":"https://jsd.onmicrosoft.cn/gh/Creators-of-Create/Create@mc1.21.1%2Fdev/src/main/java/com/simibubi/create/infrastructure/ponder/scenes/RedstoneScenes.java",
+        "description":"test",
+        "boot":"/ponder/engine/domdkw/create/dev/neoforge.boot.html"
     }
 
 ]
