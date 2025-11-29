@@ -430,11 +430,7 @@ async function tip(x, y, z, text, color, duration) {
   // 如果是字符串且不是HTML格式，尝试获取本地化文本
   if (typeof text === 'string' && !text.includes('<')) {
     // 调用vanilla.js中的getLocalizedText函数
-    if (typeof window.getLocalizedText === 'function') {
-      localizedText = window.getLocalizedText(text);
-    } else {
-      localizedText = text; // 如果函数不存在，使用原始文本
-    }
+   localizedText = languageManager.getLocalizedText(text);
   }
   
   // 确保场景已初始化
@@ -684,11 +680,7 @@ async function tiparea(x1, y1, z1, x2, y2, z2, text, color, duration) {
   // 如果是字符串且不是HTML格式，尝试获取本地化文本
   if (typeof text === 'string' && !text.includes('<')) {
     // 调用vanilla.js中的getLocalizedText函数
-    if (typeof window.getLocalizedText === 'function') {
-      localizedText = window.getLocalizedText(text);
-    } else {
-      localizedText = text; // 如果函数不存在，使用原始文本
-    }
+   localizedText = languageManager.getLocalizedText(text);
   }
   
   // 确保场景已初始化
