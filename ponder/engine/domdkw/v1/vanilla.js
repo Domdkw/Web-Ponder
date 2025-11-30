@@ -66,42 +66,8 @@ let animationFrameId = null; // 用于存储动画帧ID
 // 加载管理器
 const LoadingManager = new THREE.LoadingManager();
 const TextureLoader = new THREE.TextureLoader(LoadingManager);
-
-// ========================================
-// 资源加载与管理
-// ========================================
 const {loadinfo:lmopli, rangeblock:lmoprb} = SNLB('lm-op', true);
 lmopli.innerHTML = '<span class="file-tag y">THREE.LoadingManager</span>: 等待启动加载';
-// 加载管理器事件处理
-LoadingManager.onLoad = () => {//主要加载步骤
-  // 加载完成后，渲染 CSS2D 元素
-  console.log('renderCSS2D...');
-  window.CSS2DRenderer = new window.CSS2DRenderer(renderer);
-
-  console.log('所有资源加载完成');
-  setTimeout(async () => {
-    loadingDiv.style.opacity = '0';
-    // 从window.Process.sense中获取默认场景索引
-    const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-    CreateBase(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
-    setTimeout(async () => {
-      loadingDiv.style.display = 'none';
-      // 在 loadingDiv 完全隐藏后再执行 CreateBase 和初始化片段播放
-      if (texturesLoaded) {
-        // 初始化片段播放
-        initFragmentPlay();
-      }
-    }, 1000);
-  }, 1000);
-};
-
-LoadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
-  const percentComplete = Math.round((itemsLoaded/itemsTotal)*100);
-  lmopli.innerHTML = `<span class="file-tag mr y">总加载进度</span>=><span class="file-tag mr ml y">正在加载: ${url.split('/').pop()}</span> (${percentComplete}%)`;
-  lmoprb.style.width = percentComplete + '%';
-};
-
-LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
 
 
 // ========================================
@@ -602,31 +568,6 @@ class LanguageManager {
 const languageManager = new LanguageManager();
 
 
-// 主要逻辑初始化
-(async () => {
-  //等待THREE.LoadingManager加载完成
-  const index = window.Process.loader.indexes;
-  if (!index) return;
-   
-  let [, mtm, command] = await Promise.all([
-    loadTHREECSS2DRenderer(),
-    loadFile(index, 'json', true, `<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">${index}</span>加载贴图映射文件`),
-    loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
-    // 将精灵图加载也加入Promise.all中，实现异步同时加载
-    mcSpriteAtlas.load(
-      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.json',
-      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.png',
-      LoadingManager  // 传入LoadingManager以跟踪精灵图加载进度
-    )
-  ]);
-  window.MCTextureMap = mtm;
-   
-  // 预加载语言数据
-  languageManager.preloadAllLanguageData();
-  
-  startPreload();
-})();
-
 // 定义 MCTextureLoader 类
 const MCTextureLoader = {
   load(block, variant = null){
@@ -747,6 +688,76 @@ function startPreload() {
   texturesLoaded = true;
   console.log('所有贴图预加载完成');
 };
+
+
+// ========================================
+// 资源加载与管理
+// ========================================
+
+// 主要逻辑初始化
+(async () => {
+  //等待THREE.LoadingManager加载完成
+  const index = window.Process.loader.indexes;
+  if (!index) return;
+   
+  let [mtm, command] = await Promise.all([
+    loadFile(index, 'json', true, `<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">${index}</span>加载贴图映射文件`),
+    loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
+    // 将精灵图加载也加入Promise.all中，实现异步同时加载
+    mcSpriteAtlas.load(
+      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.json',
+      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.png',
+      LoadingManager  // 传入LoadingManager以跟踪精灵图加载进度
+    )
+  ]);
+  window.MCTextureMap = mtm;
+   
+  // 预加载语言数据
+  languageManager.preloadAllLanguageData();
+  
+  startPreload();
+})();
+
+
+// 加载管理器事件处理
+LoadingManager.onLoad = async () => {//主要加载步骤
+  // 加载完成后，渲染 CSS2D 元素
+  console.log('renderCSS2D...');
+  
+  // 先加载 CSS2DRenderer 模块
+  try {
+    await loadTHREECSS2DRenderer();
+    window.CSS2DRenderer = new window.CSS2DRenderer(renderer);
+  } catch (error) {
+    console.error('CSS2DRenderer 加载失败:', error);
+    // 如果 CSS2DRenderer 加载失败，继续执行其他逻辑
+  }
+
+  console.log('所有资源加载完成');
+  setTimeout(async () => {
+    loadingDiv.style.opacity = '0';
+    // 从window.Process.sense中获取默认场景索引
+    const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
+    CreateBase(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
+    setTimeout(async () => {
+      loadingDiv.style.display = 'none';
+      // 在 loadingDiv 完全隐藏后再执行 CreateBase 和初始化片段播放
+      if (texturesLoaded) {
+        // 初始化片段播放
+        initFragmentPlay();
+      }
+    }, 1000);
+  }, 1000);
+};
+
+LoadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+  const percentComplete = Math.round((itemsLoaded/itemsTotal)*100);
+  lmopli.innerHTML = `<span class="file-tag mr y">总加载进度</span>=><span class="file-tag mr ml y">正在加载: ${url.split('/').pop()}</span> (${percentComplete}%)`;
+  lmoprb.style.width = percentComplete + '%';
+};
+
+LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
+
 
 // ========================================
 // 场景创建与基础功能

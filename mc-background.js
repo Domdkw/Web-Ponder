@@ -107,6 +107,8 @@ if (!disableMirrorDetection) {
 
 // 将函数定义提升到文件顶部
 function loadMcPanorama() {
+  return new Promise(async (resolve, reject) => {
+    try {
   const {loadstate: tls, loadinfo: tli, rangeblock:trb} = SNLB('texture', true);
   const {loadinfo: xli, rangeblock:xrb} = SNLB('Txhr', true);
   const scene = new THREE.Scene();
@@ -358,6 +360,7 @@ function loadMcPanorama() {
           
           if(fileLoaded.imageLoadProgress.completed === 6) {
             tls.style.backgroundColor = '#fff6';
+                resolve(); // 所有纹理加载完成，resolve Promise
             setTimeout(() => {
               loadingDiv.style.opacity = '0';
               setTimeout(() => {
@@ -378,6 +381,7 @@ function loadMcPanorama() {
             fileLoaded.imageLoadProgress.completed++;
             if(fileLoaded.imageLoadProgress.completed === 6) {
               tls.style.backgroundColor = '#fff6';
+                  resolve(); // 所有纹理加载完成（包括失败的），resolve Promise
               setTimeout(() => {
                 loadingDiv.style.opacity = '0';
                 setTimeout(() => {
@@ -393,6 +397,7 @@ function loadMcPanorama() {
       console.error('Failed to initialize image loading:', error);
       // 回退到原始加载方式
       loadMaterialsOriginal();
+      // 不再 reject，因为回退方式可能会成功
     }
   }
   
@@ -408,6 +413,7 @@ function loadMcPanorama() {
           trb.style.width = `${(fileLoaded.originalTextures / 6) * 100}%`;
           if(fileLoaded.originalTextures === 6) {
             tls.style.backgroundColor = '#fff6';
+                resolve(); // 所有纹理加载完成，resolve Promise
             setTimeout(() => {
               loadingDiv.style.opacity = '0';
               setTimeout(() => {
@@ -483,6 +489,11 @@ function loadMcPanorama() {
   };
 
   animate();
+    } catch (error) {
+      console.error('Error in loadMcPanorama:', error);
+      reject(error);
+    }
+  });
 }
 
 // 修改 Promise.allSettled 的回调部分

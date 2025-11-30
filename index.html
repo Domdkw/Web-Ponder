@@ -382,12 +382,10 @@
         rangeblock.style.width = '100%';
         loadstate.style.backgroundColor = '#fff6';
         //加载mc-panorama
-        await loadFile('mc-background.js', 'js', true, '加载mc-panorama<span class="file-tag y ml">mc-background.js</span>').then(loadBox.innerHTML='');
-        setTimeout(async () => {
-          loadMcPanorama();
-          checkHref();
-          //create()
-        }, 100);
+        await loadFile('mc-background.js', 'js', true, '加载mc-panorama<span class="file-tag y ml">mc-background.js</span>')
+              .then(loadBox.innerHTML='');
+        await loadMcPanorama();
+        checkHref();
       }catch (e) {
         loadinfo.textContent = 'Failed to load the three.js module!';
         rangeblock.style.width = '0%';
