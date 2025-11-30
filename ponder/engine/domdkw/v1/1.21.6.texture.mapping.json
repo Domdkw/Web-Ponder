@@ -142,7 +142,11 @@
     },
     "minecraft:grass_block":{
         "type":"d",
-        "map":["block/grass_block.png",
-        "block/grass_block_side.png"]
+        "map":["block/grass_block.png", "block/grass_block_side.png"],
+        "variants":{
+            "snowy":{
+                "map":["block/grass_block_snowy.png", "block/grass_block_snowy_side.png"]
+            }
+        }
     }
 }

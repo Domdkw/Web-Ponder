@@ -52,9 +52,7 @@ let playState = {
 
 // 资源加载相关变量
 let loadedTexture = {};
-let textureUrl = {};
 let texturesLoaded = false;
-let textureLoadPromises = [];
 
 // 场景与片段相关变量
 const sceneTotal = window.Process.scenes.length;
@@ -72,25 +70,200 @@ const TextureLoader = new THREE.TextureLoader(LoadingManager);
 // ========================================
 // 资源加载与管理
 // ========================================
+const {loadinfo:lmopli, rangeblock:lmoprb} = SNLB('lm-op', true);
+lmopli.innerHTML = '<span class="file-tag y">THREE.LoadingManager</span>: 等待启动加载';
+// 加载管理器事件处理
+LoadingManager.onLoad = () => {//主要加载步骤
+  // 加载完成后，渲染 CSS2D 元素
+  console.log('renderCSS2D...');
+  window.CSS2DRenderer = new window.CSS2DRenderer(renderer);
 
-// 语言映射辅助函数
-window.getLocalizedText = function(textKey) {
-  // 获取当前选择的语言
-  let currentLanguage = 'en-US'; // 默认语言
-  
-  // 尝试从 page.js 获取选择的语言
-  if (typeof selectedLanguageId !== 'undefined') {
-    currentLanguage = selectedLanguageId;
+  console.log('所有资源加载完成');
+  setTimeout(async () => {
+    loadingDiv.style.opacity = '0';
+    // 从window.Process.sense中获取默认场景索引
+    const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
+    CreateBase(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
+    setTimeout(async () => {
+      loadingDiv.style.display = 'none';
+      // 在 loadingDiv 完全隐藏后再执行 CreateBase 和初始化片段播放
+      if (texturesLoaded) {
+        // 初始化片段播放
+        initFragmentPlay();
+      }
+    }, 1000);
+  }, 1000);
+};
+
+LoadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+  const percentComplete = Math.round((itemsLoaded/itemsTotal)*100);
+  lmopli.innerHTML = `<span class="file-tag mr y">总加载进度</span>=><span class="file-tag mr ml y">正在加载: ${url.split('/').pop()}</span> (${percentComplete}%)`;
+  lmoprb.style.width = percentComplete + '%';
+};
+
+LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
+
+
+// ========================================
+// 精灵图管理类 - 使用Three.js原生纹理裁剪功能
+// ========================================
+
+class MCSpriteAtlas {
+  constructor() {
+    this.atlasData = null;
+    this.atlasTexture = null;
+    this.textureCache = new Map(); // 缓存已创建的纹理
+    this.isLoaded = false;
   }
-  
-  // 检查是否有语言配置
-  if (!window.Process || !window.Process.lang) {
-    console.warn(`[Language] No language configuration found, returning original text: "${textKey}"`);
-    return textKey; // 如果没有语言配置，返回原始文本
+
+  // 加载精灵图数据和纹理
+  async load(atlasJsonPath, atlasImagePath, loadingManager) {
+    try {
+      // 创建两个Promise，让JSON数据和纹理可以异步同时加载
+      const jsonPromise = loadFile(atlasJsonPath, 'json', true, 'Loading atlasJson ...');
+      
+      const texturePromise = new Promise((resolve, reject) => {
+        const textureLoader = new THREE.TextureLoader(loadingManager);
+        textureLoader.load(
+          atlasImagePath,
+          (texture) => {
+            // 设置纹理属性以获得更好的渲染效果
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.generateMipmaps = false;
+            resolve(texture);
+          },
+          (progress) => {
+            // 移除单独的进度条显示，让LoadingManager统一管理所有资源加载进度
+          },
+          (error) => {
+            console.error('精灵图纹理加载失败:', error);
+            reject(error);
+          }
+        );
+      });
+      
+      // 显示加载进度
+      lmopli.innerHTML = `<span class="file-tag mr y">THREE.TextureLoader</span>: 正在加载精灵图纹理 ...`;
+
+      // 等待两个Promise都完成
+      const [atlasData, atlasTexture] = await Promise.all([jsonPromise, texturePromise]);
+      
+      // 保存结果
+      this.atlasData = atlasData;
+      this.atlasTexture = atlasTexture;
+      this.isLoaded = true;
+      
+      console.log(`精灵图加载成功: ${atlasImagePath}, 包含 ${Object.keys(this.atlasData.frames).length} 个纹理`);
+    } catch (error) {
+      console.error('精灵图加载失败:', error);
+      throw error;
+    }
+  }
+
+  // 获取指定名称的精灵纹理
+  getSpriteTexture(spriteName) {
+    if (!this.isLoaded) {
+      console.warn('精灵图尚未加载');
+      return null;
+    }
+
+    // 检查缓存
+    if (this.textureCache.has(spriteName)) {
+      return this.textureCache.get(spriteName);
+    }
+
+    // 获取精灵数据
+    const spriteData = this.atlasData.frames[spriteName];
+    if (!spriteData) {
+      console.warn(`未找到精灵: ${spriteName}`);
+      return null;
+    }
+
+    // 使用Three.js的纹理克隆和偏移功能
+    const { frame } = spriteData;
+    const { x, y, w, h } = frame;
+    
+    // 克隆原始纹理
+    const spriteTexture = this.atlasTexture.clone();
+    
+    // 计算UV偏移和重复
+    const atlasWidth = this.atlasData.meta.size.w;
+    const atlasHeight = this.atlasData.meta.size.h;
+    
+    // 设置纹理的重复和偏移，使其只显示精灵图的一部分
+    spriteTexture.repeat = new THREE.Vector2(w / atlasWidth, h / atlasHeight);
+    spriteTexture.offset = new THREE.Vector2(x / atlasWidth, (atlasHeight - y - h) / atlasHeight);
+    
+    // 确保其他纹理属性与原始纹理一致
+    spriteTexture.magFilter = THREE.NearestFilter;
+    spriteTexture.minFilter = THREE.NearestFilter;
+    spriteTexture.wrapS = THREE.ClampToEdgeWrapping;
+    spriteTexture.wrapT = THREE.ClampToEdgeWrapping;
+    spriteTexture.generateMipmaps = false;
+    
+    // 缓存纹理
+    this.textureCache.set(spriteName, spriteTexture);
+    
+    return spriteTexture;
+  }
+
+  // 检查精灵是否存在
+  hasSprite(spriteName) {
+    return this.isLoaded && this.atlasData.frames.hasOwnProperty(spriteName);
+  }
+
+  // 获取精灵图数据
+  getSpriteData(spriteName) {
+    return this.isLoaded ? this.atlasData.frames[spriteName] : null;
+  }
+
+  // 清除纹理缓存
+  clearCache() {
+    this.textureCache.forEach(texture => texture.dispose());
+    this.textureCache.clear();
+  }
+
+  // 释放资源
+  dispose() {
+    this.clearCache();
+    if (this.atlasTexture) {
+      this.atlasTexture.dispose();
+      this.atlasTexture = null;
+    }
+    this.atlasData = null;
+    this.isLoaded = false;
+  }
+}
+
+// 全局精灵图管理器实例
+let mcSpriteAtlas = new MCSpriteAtlas();
+
+// ========================================
+// LanguageManager 类 - 语言管理
+// ========================================
+
+class LanguageManager {
+  constructor() {
+    this.currentLanguage = selectedLanguageId || 'en-US';
+    
+    // 初始化缓存
+    if (!window.Process || !window.Process.lang) {
+      window.Process = window.Process || {};
+      window.Process.lang = window.Process.lang || {};
+    }
+    if (!window.Process.lang.urlCache) {
+      window.Process.lang.urlCache = {};
+    }
+    
+    // 确保全局可访问
+    window.languageManager = this;
   }
   
   // 语言匹配辅助函数
-  function findBestLanguageMatch(availableLanguages, targetLanguage) {
+  findBestLanguageMatch(availableLanguages, targetLanguage) {
     // 1. 尝试直接匹配
     if (availableLanguages.includes(targetLanguage)) {
       return targetLanguage;
@@ -120,47 +293,53 @@ window.getLocalizedText = function(textKey) {
     return null;
   }
   
-  // 优先从内嵌的语言映射中查找
-  if (window.Process.lang.embed) {
-    const langEmbed = window.Process.lang.embed;
-    const availableLanguages = Object.keys(langEmbed);
-    
-    const matchedLanguage = findBestLanguageMatch(availableLanguages, currentLanguage);
-    
-    // 如果找到了匹配的语言且文本键存在，返回本地化文本
-    if (matchedLanguage && langEmbed[matchedLanguage] && langEmbed[matchedLanguage][textKey]) {
-      const localizedText = langEmbed[matchedLanguage][textKey];
-      console.log(`[Language] Found embedded text for key "${textKey}" in language "${matchedLanguage}": "${localizedText}"`);
-      return localizedText;
-    } else {
-      console.log(`[Language] Text key "${textKey}" not found in embedded language "${matchedLanguage || 'none'}"`);
+  // 获取本地化文本
+  getLocalizedText(textKey) {
+    // 检查是否有语言配置
+    if (!window.Process || !window.Process.lang) {
+      console.warn(`[Language] No language configuration found, returning original text: "${textKey}"`);
+      return textKey; // 如果没有语言配置，返回原始文本
     }
-  }
-  
-  // 如果内嵌中没有对应的键，尝试从 lang.url 获取语言映射
-  if (window.Process.lang.url) {
-    // 检查是否已经缓存了 URL 语言数据
-    if (window.Process.lang.urlCache) {
-      const urlLangs = Object.keys(window.Process.lang.urlCache);
+    
+    // 优先从内嵌的语言映射中查找
+    if (window.Process.lang.embed) {
+      const langEmbed = window.Process.lang.embed;
+      const availableLanguages = Object.keys(langEmbed);
       
-      const matchedLang = findBestLanguageMatch(urlLangs, currentLanguage);
+      const matchedLanguage = this.findBestLanguageMatch(availableLanguages, this.currentLanguage);
       
       // 如果找到了匹配的语言且文本键存在，返回本地化文本
-      if (matchedLang && window.Process.lang.urlCache[matchedLang] && window.Process.lang.urlCache[matchedLang][textKey]) {
-        const localizedText = window.Process.lang.urlCache[matchedLang][textKey];
-        console.log(`[Language] Found URL text for key "${textKey}" in language "${matchedLang}": "${localizedText}"`);
+      if (matchedLanguage && langEmbed[matchedLanguage] && langEmbed[matchedLanguage][textKey]) {
+        const localizedText = langEmbed[matchedLanguage][textKey];
+        console.log(`[Language] Found embedded text for key "${textKey}" in language "${matchedLanguage}": "${localizedText}"`);
         return localizedText;
       } else {
-        console.log(`[Language] Text key "${textKey}" not found in URL language "${matchedLang || 'none'}"`);
+        console.log(`[Language] Text key "${textKey}" not found in embedded language "${matchedLanguage || 'none'}"`);
       }
-    } else {
-      console.warn(`[Language] URL language cache is empty, trying to load data`);
-      // 尝试动态加载当前语言的数据
-      if (typeof loadUrlLanguageData === 'function') {
-        // 同步加载语言数据
-        loadUrlLanguageData().then(() => {
+    }
+    
+    // 如果内嵌中没有对应的键，尝试从 lang.url 获取语言映射
+    if (window.Process.lang.url) {
+      // 检查是否已经缓存了 URL 语言数据
+      if (window.Process.lang.urlCache) {
+        const urlLangs = Object.keys(window.Process.lang.urlCache);
+        
+        const matchedLang = this.findBestLanguageMatch(urlLangs, this.currentLanguage);
+        
+        // 如果找到了匹配的语言且文本键存在，返回本地化文本
+        if (matchedLang && window.Process.lang.urlCache[matchedLang] && window.Process.lang.urlCache[matchedLang][textKey]) {
+          const localizedText = window.Process.lang.urlCache[matchedLang][textKey];
+          console.log(`[Language] Found URL text for key "${textKey}" in language "${matchedLang}": "${localizedText}"`);
+          return localizedText;
+        } else {
+          console.log(`[Language] Text key "${textKey}" not found in URL language "${matchedLang || 'none'}"`);
+        }
+      } else {
+        console.warn(`[Language] URL language cache is empty, trying to load data`);
+        // 尝试动态加载当前语言的数据
+        this.loadUrlLanguageData().then(() => {
           // 加载完成后，重新调用函数获取本地化文本
-          return window.getLocalizedText(textKey);
+          return this.getLocalizedText(textKey);
         }).catch(error => {
           console.error(`[Language] Failed to load language data:`, error);
           // 不抛出错误，只记录错误信息，程序继续运行
@@ -168,265 +347,291 @@ window.getLocalizedText = function(textKey) {
         // 返回原始文本，因为异步加载需要时间
         return textKey;
       }
-    }
-  } else {
-    console.log(`[Language] No URL language data configured`);
-  }
-  
-  // 如果没有找到任何本地化文本，返回原始文本
-  console.warn(`[Language] No localized text found for key "${textKey}", returning original text`);
-  return textKey;
-};
-
-// 加载URL语言数据的函数
-window.loadUrlLanguageData = async function() {
-  if (!window.Process || !window.Process.lang || !window.Process.lang.url) {
-    return; // 如果没有URL，则不加载
-  }
-  
-  try {
-    // 初始化缓存
-    if (!window.Process.lang.urlCache) {
-      window.Process.lang.urlCache = {};
-      console.log('[Language] Initialized URL language cache');
+    } else {
+      console.log(`[Language] No URL language data configured`);
     }
     
-    // 获取当前选择的语言
-    const currentLanguage = window.selectedLanguageId || 'en-US';
-    console.log(`[Language] Loading language data for "${currentLanguage}"`);
+    // 如果没有找到任何本地化文本，返回原始文本
+    console.warn(`[Language] No localized text found for key "${textKey}", returning original text`);
+    return textKey;
+  }
+  
+  // 加载URL语言数据的函数
+  async loadUrlLanguageData() {
+    if (!window.Process || !window.Process.lang || !window.Process.lang.url) {
+      return; // 如果没有URL，则不加载
+    }
+    
+    try {
+      // 初始化缓存
+      if (!window.Process.lang.urlCache) {
+        window.Process.lang.urlCache = {};
+        console.log('[Language] Initialized URL language cache');
+      }
+      
+      console.log(`[Language] Loading language data for "${this.currentLanguage}"`);
+      
+      // 检查是否为"all"配置
+      if (window.Process.lang.url.all) {
+        console.log('[Language] Detected "all" configuration, loading combined language file');
+        
+        // 如果已经缓存了所有语言数据，则不再加载
+        if (Object.keys(window.Process.lang.urlCache).length > 0) {
+          console.log('[Language] Combined language data already cached, skipping load');
+          return;
+        }
+        
+        // 加载包含所有语言数据的单一文件
+        const url = window.Process.lang.url.all;
+        console.log(`[Language] Loading combined language data from: ${url}`);
+        
+        const response = await fetch(url);
+        if (response.ok) {
+          const allLangData = await response.json();
+          
+          // 将数据按语言代码拆分到缓存中
+          for (const [langCode, langData] of Object.entries(allLangData)) {
+            if (typeof langData === 'object' && langData !== null) {
+              window.Process.lang.urlCache[langCode] = langData;
+              console.log(`[Language] Loaded language data for "${langCode}" from combined file`);
+              console.log(`[Language] Available keys in "${langCode}": ${Object.keys(langData).join(', ')}`);
+            }
+          }
+          
+          console.log('[Language] Successfully loaded all language data from combined file');
+        } else {
+          console.error(`[Language] Failed to load combined language data from ${url}: HTTP ${response.status} ${response.statusText}`);
+          // 不抛出错误，只记录错误信息，程序继续运行
+        }
+      } else {
+        // 原有的单个语言文件加载逻辑
+        let url;
+        if (window.Process.lang.url && window.Process.lang.url[this.currentLanguage]) {
+          // 如果有特定语言的URL，使用该URL
+          url = window.Process.lang.url[this.currentLanguage];
+          console.log(`[Language] Using specific URL for "${this.currentLanguage}": ${url}`);
+        } else {
+          // 否则使用基础URL加上语言代码
+          const baseUrl = window.Process.lang.url;
+          url = `${baseUrl}/${this.currentLanguage}.json`;
+          console.log(`[Language] Using constructed URL for "${this.currentLanguage}": ${url}`);
+        }
+        
+        // 如果已经缓存了当前语言的数据，则不再加载
+        if (window.Process.lang.urlCache[this.currentLanguage]) {
+          return;
+        }
+        
+        // 获取语言数据
+        const response = await fetch(url);
+        if (response.ok) {
+          const langData = await response.json();
+          window.Process.lang.urlCache[this.currentLanguage] = langData;
+          console.log(`[Language] Successfully loaded language data for "${this.currentLanguage}" from URL`);
+          console.log(`[Language] Available keys in loaded data: ${Object.keys(langData).join(', ')}`);
+        } else {
+          console.error(`[Language] Failed to load language data from ${url}: HTTP ${response.status} ${response.statusText}`);
+          // 不抛出错误，只记录错误信息，程序继续运行
+        }
+      }
+    } catch (error) {
+      console.error('[Language] Failed to load language data from URL:', error);
+      // 不抛出错误，只记录错误信息，程序继续运行
+    }
+  }
+  
+  // 加载单个语言数据的辅助函数
+  async loadSingleLanguageData(languageCode) {
+    if (!window.Process || !window.Process.lang || !window.Process.lang.url) {
+      return;
+    }
     
     // 检查是否为"all"配置
     if (window.Process.lang.url.all) {
-      console.log('[Language] Detected "all" configuration, loading combined language file');
-      
-      // 如果已经缓存了所有语言数据，则不再加载
-      if (Object.keys(window.Process.lang.urlCache).length > 0) {
-        console.log('[Language] Combined language data already cached, skipping load');
-        return;
-      }
-      
-      // 加载包含所有语言数据的单一文件
-      const url = window.Process.lang.url.all;
-      console.log(`[Language] Loading combined language data from: ${url}`);
-      
-      const response = await fetch(url);
-      if (response.ok) {
-        const allLangData = await response.json();
-        
-        // 将数据按语言代码拆分到缓存中
-        for (const [langCode, langData] of Object.entries(allLangData)) {
-          if (typeof langData === 'object' && langData !== null) {
-            window.Process.lang.urlCache[langCode] = langData;
-            console.log(`[Language] Loaded language data for "${langCode}" from combined file`);
-            console.log(`[Language] Available keys in "${langCode}": ${Object.keys(langData).join(', ')}`);
-          }
-        }
-        
-        console.log('[Language] Successfully loaded all language data from combined file');
-      } else {
-        console.error(`[Language] Failed to load combined language data from ${url}: HTTP ${response.status} ${response.statusText}`);
-        // 不抛出错误，只记录错误信息，程序继续运行
-      }
-    } else {
-      // 原有的单个语言文件加载逻辑
+      console.log(`[Language] "all" configuration detected, skipping individual preload for "${languageCode}"`);
+      return; // 在"all"配置下，单个语言预加载不需要执行
+    }
+    
+    // 如果已经缓存了该语言的数据，则不再加载
+    if (window.Process.lang.urlCache[languageCode]) {
+      console.log(`[Language] Language data for "${languageCode}" already cached, skipping preload`);
+      return;
+    }
+    
+    try {
+      // 从语言配置获取语言文件路径
       let url;
-      if (window.Process.lang.url && window.Process.lang.url[currentLanguage]) {
+      if (window.Process.lang.url && window.Process.lang.url[languageCode]) {
         // 如果有特定语言的URL，使用该URL
-        url = window.Process.lang.url[currentLanguage];
-        console.log(`[Language] Using specific URL for "${currentLanguage}": ${url}`);
+        url = window.Process.lang.url[languageCode];
+        console.log(`[Language] Using specific URL for "${languageCode}": ${url}`);
       } else {
         // 否则使用基础URL加上语言代码
         const baseUrl = window.Process.lang.url;
-        url = `${baseUrl}/${currentLanguage}.json`;
-        console.log(`[Language] Using constructed URL for "${currentLanguage}": ${url}`);
+        url = `${baseUrl}/${languageCode}.json`;
+        console.log(`[Language] Using constructed URL for "${languageCode}": ${url}`);
       }
       
-      // 如果已经缓存了当前语言的数据，则不再加载
-      if (window.Process.lang.urlCache[currentLanguage]) {
-        return;
-      }
+      console.log(`[Language] Preloading language data for "${languageCode}" from: ${url}`);
       
       // 获取语言数据
       const response = await fetch(url);
       if (response.ok) {
         const langData = await response.json();
-        window.Process.lang.urlCache[currentLanguage] = langData;
-        console.log(`[Language] Successfully loaded language data for "${currentLanguage}" from URL`);
-        console.log(`[Language] Available keys in loaded data: ${Object.keys(langData).join(', ')}`);
+        window.Process.lang.urlCache[languageCode] = langData;
+        console.log(`[Language] Successfully preloaded language data for "${languageCode}"`);
+        console.log(`[Language] Available keys in preloaded data: ${Object.keys(langData).join(', ')}`);
       } else {
-        console.error(`[Language] Failed to load language data from ${url}: HTTP ${response.status} ${response.statusText}`);
-        // 不抛出错误，只记录错误信息，程序继续运行
-      }
-    }
-  } catch (error) {
-    console.error('[Language] Failed to load language data from URL:', error);
-    // 不抛出错误，只记录错误信息，程序继续运行
-  }
-};
-
-// 加载单个语言数据的辅助函数
-window.loadSingleLanguageData = async function(languageCode) {
-  if (!window.Process || !window.Process.lang || !window.Process.lang.url) {
-    return;
-  }
-  
-  // 检查是否为"all"配置
-  if (window.Process.lang.url.all) {
-    console.log(`[Language] "all" configuration detected, skipping individual preload for "${languageCode}"`);
-    return; // 在"all"配置下，单个语言预加载不需要执行
-  }
-  
-  // 如果已经缓存了该语言的数据，则不再加载
-  if (window.Process.lang.urlCache[languageCode]) {
-    console.log(`[Language] Language data for "${languageCode}" already cached, skipping preload`);
-    return;
-  }
-  
-  try {
-    // 从dirt.json中的语言配置获取语言文件路径
-    let url;
-    if (window.Process.lang.url && window.Process.lang.url[languageCode]) {
-      // 如果有特定语言的URL，使用该URL
-      url = window.Process.lang.url[languageCode];
-      console.log(`[Language] Using specific URL for "${languageCode}": ${url}`);
-    } else {
-      // 否则使用基础URL加上语言代码
-      const baseUrl = window.Process.lang.url;
-      url = `${baseUrl}/${languageCode}.json`;
-      console.log(`[Language] Using constructed URL for "${languageCode}": ${url}`);
-    }
-    
-    console.log(`[Language] Preloading language data for "${languageCode}" from: ${url}`);
-    
-    // 获取语言数据
-    const response = await fetch(url);
-    if (response.ok) {
-      const langData = await response.json();
-      window.Process.lang.urlCache[languageCode] = langData;
-      console.log(`[Language] Successfully preloaded language data for "${languageCode}"`);
-      console.log(`[Language] Available keys in preloaded data: ${Object.keys(langData).join(', ')}`);
-    } else {
-      console.error(`[Language] Failed to preload language data from ${url}: HTTP ${response.status} ${response.statusText}`);
-      // 不抛出错误，只记录错误信息，程序继续运行
-    }
-  } catch (error) {
-    console.error(`[Language] Failed to preload language data for "${languageCode}":`, error);
-    // 不抛出错误，只记录错误信息，程序继续运行
-  }
-};
-
-// 预加载所有可用语言数据的函数
-window.preloadAllLanguageData = async function() {
-  if (!window.Process || !window.Process.lang || !window.Process.lang.url) {
-    console.log('[Language] No URL language data configured, skipping preload');
-    return; // 如果没有URL，则不加载
-  }
-  
-  console.log('[Language] Starting preload of all language data');
-  
-  // 初始化缓存
-  if (!window.Process.lang.urlCache) {
-    window.Process.lang.urlCache = {};
-    console.log('[Language] Initialized URL language cache for preload');
-  }
-  
-  // 检查是否为"all"配置
-  if (window.Process.lang.url.all) {
-    console.log('[Language] "all" configuration detected, loading combined language file for preload');
-    
-    // 如果已经缓存了数据，则不再加载
-    if (Object.keys(window.Process.lang.urlCache).length > 0) {
-      console.log('[Language] Combined language data already cached, skipping preload');
-      return;
-    }
-    
-    // 加载包含所有语言数据的单一文件
-    const url = window.Process.lang.url.all;
-    console.log(`[Language] Preloading combined language data from: ${url}`);
-    
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        const allLangData = await response.json();
-        
-        // 将数据按语言代码拆分到缓存中
-        for (const [langCode, langData] of Object.entries(allLangData)) {
-          if (typeof langData === 'object' && langData !== null) {
-            window.Process.lang.urlCache[langCode] = langData;
-            console.log(`[Language] Preloaded language data for "${langCode}" from combined file`);
-          }
-        }
-        
-        console.log('[Language] Successfully preloaded all language data from combined file');
-      } else {
-        console.error(`[Language] Failed to preload combined language data from ${url}: HTTP ${response.status} ${response.statusText}`);
+        console.error(`[Language] Failed to preload language data from ${url}: HTTP ${response.status} ${response.statusText}`);
         // 不抛出错误，只记录错误信息，程序继续运行
       }
     } catch (error) {
-      console.error('[Language] Failed to preload combined language data:', error);
+      console.error(`[Language] Failed to preload language data for "${languageCode}":`, error);
       // 不抛出错误，只记录错误信息，程序继续运行
     }
+  }
+  
+  // 预加载所有可用语言数据的函数
+  async preloadAllLanguageData() {
+    if (!window.Process || !window.Process.lang || !window.Process.lang.url) {
+      console.log('[Language] No URL language data configured, skipping preload');
+      return; // 如果没有URL，则不加载
+    }
     
-    return; // 在"all"配置下，不需要执行原有的预加载逻辑
+    console.log('[Language] Starting preload of all language data');
+    
+    // 初始化缓存
+    if (!window.Process.lang.urlCache) {
+      window.Process.lang.urlCache = {};
+      console.log('[Language] Initialized URL language cache for preload');
+    }
+    
+    // 检查是否为"all"配置
+    if (window.Process.lang.url.all) {
+      console.log('[Language] "all" configuration detected, loading combined language file for preload');
+      
+      // 如果已经缓存了数据，则不再加载
+      if (Object.keys(window.Process.lang.urlCache).length > 0) {
+        console.log('[Language] Combined language data already cached, skipping preload');
+        return;
+      }
+      
+      // 加载包含所有语言数据的单一文件
+      const url = window.Process.lang.url.all;
+      console.log(`[Language] Preloading combined language data from: ${url}`);
+      
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          const allLangData = await response.json();
+          
+          // 将数据按语言代码拆分到缓存中
+          for (const [langCode, langData] of Object.entries(allLangData)) {
+            if (typeof langData === 'object' && langData !== null) {
+              window.Process.lang.urlCache[langCode] = langData;
+              console.log(`[Language] Preloaded language data for "${langCode}" from combined file`);
+            }
+          }
+          
+          console.log('[Language] Successfully preloaded all language data from combined file');
+        } else {
+          console.error(`[Language] Failed to preload combined language data from ${url}: HTTP ${response.status} ${response.statusText}`);
+          // 不抛出错误，只记录错误信息，程序继续运行
+        }
+      } catch (error) {
+        console.error('[Language] Failed to preload combined language data:', error);
+        // 不抛出错误，只记录错误信息，程序继续运行
+      }
+      
+      return; // 在"all"配置下，不需要执行原有的预加载逻辑
+    }
+    
+    // 原有的单个语言文件预加载逻辑
+    
+    // 从语言配置获取需要预加载的语言列表
+    let languagesToPreload = [];
+    
+    if (window.Process && window.Process.lang && window.Process.lang.available) {
+      // 如果有可用语言列表，使用该列表
+      languagesToPreload = window.Process.lang.available;
+      console.log('[Language] Using available languages from configuration:', languagesToPreload);
+    } else if (window.Process.lang.embed) {
+      // 否则使用嵌入语言数据中的语言
+      languagesToPreload = Object.keys(window.Process.lang.embed);
+      console.log('[Language] Using embedded languages:', languagesToPreload);
+    }
+    
+    // 确保包含当前语言和英语作为回退
+    if (!languagesToPreload.includes(this.currentLanguage)) {
+      languagesToPreload.push(this.currentLanguage);
+    }
+    if (!languagesToPreload.includes('en-US')) {
+      languagesToPreload.push('en-US');
+    }
+    
+    // 预加载所有语言
+    for (const lang of languagesToPreload) {
+      await this.loadSingleLanguageData(lang);
+    }
+    
+    console.log('[Language] Completed preload of all language data');
   }
   
-  // 原有的单个语言文件预加载逻辑
-  const currentLanguage = window.selectedLanguageId || 'en-US';
-  
-  // 从dirt.json中的语言配置获取需要预加载的语言列表
-  let languagesToPreload = [];
-  
-  if (window.Process && window.Process.lang && window.Process.lang.available) {
-    // 如果有可用语言列表，使用该列表
-    languagesToPreload = window.Process.lang.available;
-    console.log('[Language] Using available languages from dirt.json:', languagesToPreload);
-  } else if (window.Process.lang.embed) {
-    // 否则使用嵌入语言数据中的语言
-    languagesToPreload = Object.keys(window.Process.lang.embed);
-    console.log('[Language] Using embedded languages:', languagesToPreload);
+  // 更新当前语言
+  setCurrentLanguage(languageCode) {
+    this.currentLanguage = languageCode;
+    window.selectedLanguageId = languageCode;
+    console.log(`[Language] Current language set to: ${languageCode}`);
   }
   
-  // 确保包含当前语言和英语作为回退
-  if (!languagesToPreload.includes(currentLanguage)) {
-    languagesToPreload.push(currentLanguage);
-  }
-  if (!languagesToPreload.includes('en-US')) {
-    languagesToPreload.push('en-US');
+  // 获取当前语言
+  getCurrentLanguage() {
+    return this.currentLanguage;
   }
   
-  // 预加载所有语言
-  for (const lang of languagesToPreload) {
-    await loadSingleLanguageData(lang);
+  // 清除语言缓存
+  clearCache() {
+    if (window.Process && window.Process.lang && window.Process.lang.urlCache) {
+      window.Process.lang.urlCache = {};
+      console.log('[Language] Language cache cleared');
+    }
   }
-  
-  console.log('[Language] Completed preload of all language data');
-};
+}
+
+// 创建LanguageManager实例
+const languageManager = new LanguageManager();
+
 
 // 主要逻辑初始化
 (async () => {
   //等待THREE.LoadingManager加载完成
   const index = window.Process.loader.indexes;
   if (!index) return;
+   
   let [, mtm, command] = await Promise.all([
     loadTHREECSS2DRenderer(),
     loadFile(index, 'json', true, `<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">${index}</span>加载贴图映射文件`),
-    loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件')
+    loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
+    // 将精灵图加载也加入Promise.all中，实现异步同时加载
+    mcSpriteAtlas.load(
+      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.json',
+      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.png',
+      LoadingManager  // 传入LoadingManager以跟踪精灵图加载进度
+    )
   ]);
   window.MCTextureMap = mtm;
-  
+   
   // 预加载语言数据
-  if(typeof window.preloadAllLanguageData === 'function') {
-    window.preloadAllLanguageData();
-  }
+  languageManager.preloadAllLanguageData();
   
   startPreload();
 })();
 
 // 定义 MCTextureLoader 类
 const MCTextureLoader = {
-  load(block){
+  load(block, variant = null){
     // 检查 MCTextureMap 是否已定义且包含该方块
-    if(block in window.MCTextureMap){
+    if(block in window.MCTextureMap) {
       switch (window.MCTextureMap[block].type) {
         case 6:
           // 对于类型6，直接返回贴图
@@ -455,12 +660,25 @@ const MCTextureLoader = {
             console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
             return null;
           }
+      }//switch
+    } else {
+      // 如果没有找到贴图，尝试从精灵图中获取
+      const blockName = block.split(':')[1]; // 取:后字段
+      const spriteName = `${blockName}.png`; // 精灵图中的文件名
+      
+      // 尝试从精灵图中获取纹理
+      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
+      
+      if (spriteTexture) {
+        // 缓存纹理以供后续使用
+        loadedTexture[block] = spriteTexture;
+        console.log(`从精灵图加载纹理: ${spriteName}`);
+        return spriteTexture;
+      } else {
+        console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
+        return null;
       }
     }
-    
-    // 如果没有找到贴图，返回 null
-    console.warn(`方块 ${block} 不在贴图映射中`);
-    return null;
   },
   
   d(map, block) {
@@ -487,82 +705,48 @@ function startPreload() {
   if(needBlock){
     console.log('###########已预加载贴图############');
     for (const block of needBlock) {
-      console.log(block);
       if(!(block in window.MCTextureMap)) {//如果方块不在贴图映射中
         console.warn(`方块 ${block} 不在贴图映射中`);
         continue;
       }
       const blockName = block.split(':')[1];//取:后字段
-      // 只存储带命名空间的键名
-      textureUrl[block] = '/ponder/minecraft/textures/block/'+blockName+'.png';
+      // 尝试从精灵图中预加载纹理
+      const spriteName = `${blockName}.png`;
+      if (mcSpriteAtlas.hasSprite(spriteName)) {
+        const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
+        if (spriteTexture) {
+          loadedTexture[block] = spriteTexture;
+          console.log(spriteName);
+        }
+      }
     }
     console.log('###############End###############');
   };
+  
+  // 处理场景中需要的特殊贴图
   for (const scene of window.Process.scenes) {//遍历场景,根据base设置预加载贴图
     switch (scene.base.default) {
       case 'create':
           switch(scene.base.create.style){
             case '5x5chessboard':
-              // 只存储带命名空间的键名
-              textureUrl['minecraft:snow'] = '/ponder/minecraft/textures/block/snow.png';
-              textureUrl['minecraft:clay'] = '/ponder/minecraft/textures/block/clay.png';
+              // 尝试从精灵图中加载雪和粘土块
+              if (mcSpriteAtlas.hasSprite('snow.png')) {
+                loadedTexture['minecraft:snow'] = mcSpriteAtlas.getSpriteTexture('snow.png');
+              }
+              if (mcSpriteAtlas.hasSprite('clay.png')) {
+                loadedTexture['minecraft:clay'] = mcSpriteAtlas.getSpriteTexture('clay.png');
+              }
+              console.log('Create.5x5chessboard: snow.png, clay.png');
               break;
           }
         break;
     }
   }
-  // 创建所有贴图加载的 Promise
-  textureLoadPromises = Object.entries(textureUrl).map(([block, url]) => {
-    return new Promise((resolve) => {
-      TextureLoader.load(url, (texture) => {
-        loadedTexture[block] = texture;
-        resolve();
-      }, undefined, (error) => {
-        console.error(`贴图 ${block} 加载失败:`, error);
-        resolve(); // 即使失败也resolve，避免Promise.all被卡住
-      });
-    });
-  });
   
-  // 等待所有贴图加载完成
-  Promise.all(textureLoadPromises).then(() => {
-    texturesLoaded = true;
-    console.log('所有贴图加载完成');
-  });
+  // 标记纹理加载完成
+  texturesLoaded = true;
+  console.log('所有贴图预加载完成');
 };
-
-// 加载管理器事件处理
-LoadingManager.onLoad = () => {//主要加载步骤
-  // 加载完成后，渲染 CSS2D 元素
-  console.log('renderCSS2D...');
-  window.CSS2DRenderer = new window.CSS2DRenderer(renderer);
-
-  console.log('所有资源加载完成');
-  setTimeout(async () => {
-    loadingDiv.style.opacity = '0';
-    // 从window.Process.sense中获取默认场景索引
-    const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-    CreateBase(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
-    setTimeout(async () => {
-      loadingDiv.style.display = 'none';
-      // 在 loadingDiv 完全隐藏后再执行 CreateBase 和初始化片段播放
-      if (texturesLoaded) {
-        // 初始化片段播放
-        initFragmentPlay();
-      }
-    }, 1000);
-  }, 1000);
-};
-
-const {loadinfo:lmopli, rangeblock:lmoprb} = SNLB('lm-op', true);
-lmopli.innerHTML = '<span class="file-tag y">THREE.LoadingManager</span>: 等待启动加载';
-
-LoadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
-  lmopli.innerHTML = `<span class="file-tag y">THREE.LoadingManager</span>: 已加载${itemsLoaded}个资源，共${itemsTotal}个资源`;
-  lmoprb.style.width = Math.round((itemsLoaded/itemsTotal)*100) + '%';
-};
-
-LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
 
 // ========================================
 // 场景创建与基础功能
