@@ -54,6 +54,13 @@ if (userSelectedMirror === "local") {
 } else if (userSelectedMirror === "onmicrosoft") {
   imgDomain = 2;
 }
+
+//URLSearchParams
+const urlParams = new URLSearchParams(window.location.search).get('imgDomain');
+if (urlParams !== null) {
+  imgDomain = parseInt(urlParams);
+}
+
 // 保留本地图片源功能模块但默认不启用
 // 仅当需要时通过参数启用
 const enableLocalSource = false; // 设置为true以启用本地资源
