@@ -12,6 +12,7 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.45;
 renderer.domElement.style.zIndex = '10'; // 设置高于背景画布的z-index(mcbackground)
+terminal.style.zIndex = '15';
 
 const scene = new THREE.Scene();
 scene.background = null; // 设置为null以使用透明背景
@@ -205,7 +206,7 @@ class MCSpriteAtlas {
 }
 
 // 全局精灵图管理器实例
-let mcSpriteAtlas = new MCSpriteAtlas();
+const mcSpriteAtlas = new MCSpriteAtlas();
 
 // ========================================
 // LanguageManager 类 - 语言管理
@@ -641,45 +642,69 @@ const MCTextureLoader = {
 }
 
 // 预加载贴图
-function startPreload() {
-  const needBlock = window.Process.loader.block;
-  if(needBlock){
-    console.log('###########已预加载贴图############');
-    for (const block of needBlock) {
-      if(!(block in window.MCTextureMap)) {//如果方块不在贴图映射中
-        console.warn(`方块 ${block} 不在贴图映射中`);
-        continue;
-      }
-      const blockName = block.split(':')[1];//取:后字段
-      // 尝试从精灵图中预加载纹理
-      const spriteName = `${blockName}.png`;
-      if (mcSpriteAtlas.hasSprite(spriteName)) {
-        const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
-        if (spriteTexture) {
-          loadedTexture[block] = spriteTexture;
-          console.log(spriteName);
+function preloadBaseTextures() {
+  const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
+  //通过读取sense.fragment获取需要预加载的方块
+  const needBlock = [];
+  for (const scene of window.Process.scenes) {//遍历场景
+    if (!scene.fragment) continue;//如果场景没有fragment，跳过
+    
+    // 遍历场景中的所有片段
+    for (const fragment of scene.fragment) {
+      if (!Array.isArray(fragment)) continue;
+      
+      // 遍历片段中的所有命令行
+      for (const line of fragment) {
+        if (line.startsWith('//')) continue; // 跳过注释行
+        
+        // 检查是否包含方块函数并提取方块名称
+        for (const func of blockFunction) {
+          if (!line.includes(func)) continue;
+          
+          // 使用正则表达式提取方块名称
+          const match = line.match(new RegExp(`${func}\\s*\\(\\s*'([^']+)'`));
+          if (match?.[1] && !needBlock.includes(match[1])) {
+            needBlock.push(match[1]);
+          }
         }
       }
     }
-    console.log('###############End###############');
-  };
-  
+  }
+
+  console.log('###########已预加载贴图############');
+  for (const block of needBlock) {
+    if(!(block in window.MCTextureMap)) {//如果方块不在贴图映射中
+      console.warn(`方块 ${block} 不在贴图映射中`);
+      continue;
+    }
+    const blockName = block.split(':')[1];//取:后字段
+    // 尝试从精灵图中预加载纹理
+    const spriteName = `${blockName}.png`;
+    if (mcSpriteAtlas.hasSprite(spriteName)) {
+      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
+      if (spriteTexture) {
+        loadedTexture[block] = spriteTexture;
+        console.log(spriteName);
+      }
+    }
+  }
+  console.log('###############End###############');
+
   // 处理场景中需要的特殊贴图
-  for (const scene of window.Process.scenes) {//遍历场景,根据base设置预加载贴图
+  for (let i = 0; i < window.Process.scenes.length; i++) {//遍历场景,根据base设置预加载贴图
+    const scene = window.Process.scenes[i];
+    // 检查场景是否有base属性
+    if (!scene.base) {
+      console.log(`[PreloadBaseTexture] 场景${i+1}/${window.Process.scenes.length}没有base属性，跳过预加载`);
+      continue; // 继续处理下一个场景
+    }
+    
     switch (scene.base.default) {
       case 'create':
-          switch(scene.base.create.style){
-            case '5x5chessboard':
-              // 尝试从精灵图中加载雪和粘土块
-              if (mcSpriteAtlas.hasSprite('snow.png')) {
-                loadedTexture['minecraft:snow'] = mcSpriteAtlas.getSpriteTexture('snow.png');
-              }
-              if (mcSpriteAtlas.hasSprite('clay.png')) {
-                loadedTexture['minecraft:clay'] = mcSpriteAtlas.getSpriteTexture('clay.png');
-              }
-              console.log('Create.5x5chessboard: snow.png, clay.png');
-              break;
-          }
+        createBase.preloadTexture(scene.base.create, i);
+        break;
+      default:
+        console.warn(`未处理的base默认值: ${scene.base.default}`);
         break;
     }
   }
@@ -694,13 +719,13 @@ function startPreload() {
 // 资源加载与管理
 // ========================================
 
-// 主要逻辑初始化
+// 主要逻辑初始化：加载资源
 (async () => {
   //等待THREE.LoadingManager加载完成
   const index = window.Process.loader.indexes;
   if (!index) return;
    
-  let [mtm, command] = await Promise.all([
+  let [mtm, _] = await Promise.all([
     loadFile(index, 'json', true, `<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">${index}</span>加载贴图映射文件`),
     loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
     // 将精灵图加载也加入Promise.all中，实现异步同时加载
@@ -715,35 +740,39 @@ function startPreload() {
   // 预加载语言数据
   languageManager.preloadAllLanguageData();
   
-  startPreload();
+  preloadBaseTextures();
 })();
 
 
 // 加载管理器事件处理
 LoadingManager.onLoad = async () => {//主要加载步骤
   // 加载完成后，渲染 CSS2D 元素
-  console.log('renderCSS2D...');
+  console.log('[LoadingManager] loading CSS2DRender...');
   
   // 先加载 CSS2DRenderer 模块
   try {
     await loadTHREECSS2DRenderer();
     window.CSS2DRenderer = new window.CSS2DRenderer(renderer);
+    console.log('[LoadingManager] CSS2DRenderer finished.');
   } catch (error) {
-    console.error('CSS2DRenderer 加载失败:', error);
+    console.error('[LoadingManager] CSS2DRenderer error:', error);
     // 如果 CSS2DRenderer 加载失败，继续执行其他逻辑
   }
 
-  console.log('所有资源加载完成');
+  console.log('[LoadingManager] 所有资源加载完成');
   setTimeout(async () => {
     loadingDiv.style.opacity = '0';
     // 从window.Process.sense中获取默认场景索引
     const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-    CreateBase(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
+    createBase.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
     setTimeout(async () => {
       loadingDiv.style.display = 'none';
-      // 在 loadingDiv 完全隐藏后再执行 CreateBase 和初始化片段播放
       if (texturesLoaded) {
         // 初始化片段播放
+        initFragmentPlay();
+      } else {
+        console.warn('[LoadingManager] 纹理尚未加载完成，但继续初始化');
+        // 即使纹理未加载完成，也尝试初始化片段播放
         initFragmentPlay();
       }
     }, 1000);
@@ -763,40 +792,69 @@ LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
 // 场景创建与基础功能
 // ========================================
 
-// 创建基础场景
-function CreateBase(sceneNum){//创建CreateBase场景
-  const createBase = window.Process.scenes[sceneNum].base.create;
-  if(!createBase) return;
-  //main -style
-  if(!createBase.style) return;
-  let cx = 0, cy = 0, cz = 0;
-  if(createBase.offset){
-    cx = createBase.offset.x;
-    cy = createBase.offset.y;
-    cz = createBase.offset.z;
-  }
-  switch(createBase.style){//根据style设置base
-    case '5x5chessboard':
-      const table = [[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],]
-      for (let i = 0; i < table.length; i++) {
-        const row = table[i];
-        for (let j = 0; j < row.length; j++) {
-          const cell = row[j];
-          if(cell === 1){setblock('minecraft:snow', i+cx-2, cy, j+cz-2);}
-          else{setblock('minecraft:clay', i+cx-2, cy, j+cz-2);}
+// create基础场景
+class CreateBase{
+  preloadTexture(baseSetting, sceneNum){//预加载场景的所有贴图
+    switch (baseSetting.style) {
+      case '5x5chessboard':
+        // 尝试从精灵图中加载雪和粘土块
+        if (mcSpriteAtlas.hasSprite('snow.png')) {
+          loadedTexture['minecraft:snow'] = mcSpriteAtlas.getSpriteTexture('snow.png');
         }
-      }
-      break;
+        if (mcSpriteAtlas.hasSprite('clay.png')) {
+          loadedTexture['minecraft:clay'] = mcSpriteAtlas.getSpriteTexture('clay.png');
+        }
+        console.log(`[PBT=>CreateBase] 场景${sceneNum+1}/${window.Process.scenes.length} Create:5x5chessboard: snow.png, clay.png`);
+        break;
+      default:
+        console.warn(`[PBT=>CreateBase] 未处理的base样式: ${baseSetting.style}`);
+        break;
+    }
+  }
+  checkSet(sceneNum){//检查并创建CreateBase场景
+    if(!window.Process.scenes[sceneNum].base) return;
+    const baseSetting = window.Process.scenes[sceneNum].base.create;
+    if(!baseSetting) return;
+    //main -style
+    if(!baseSetting.style) return;
+    let cx = 0, cy = 0, cz = 0;
+    if(baseSetting.offset){
+      cx = baseSetting.offset.x;
+      cy = baseSetting.offset.y;
+      cz = baseSetting.offset.z;
+    }
+    switch(baseSetting.style){//根据style设置base
+      case '5x5chessboard':
+        const table = [[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],]
+        for (let i = 0; i < table.length; i++) {
+          const row = table[i];
+          for (let j = 0; j < row.length; j++) {
+            const cell = row[j];
+            if(cell === 1){setblock('minecraft:snow', i+cx-2, cy, j+cz-2);}
+            else{setblock('minecraft:clay', i+cx-2, cy, j+cz-2);}
+          }
+        }
+        break;
+    }
   }
 }
+const createBase = new CreateBase();
 
 // ========================================
 // 工具函数与辅助方法
 // ========================================
 
-// Ease in out 缓动函数
-function easeInOut(t) {
-  return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+//缓动函数
+class transition{
+  static easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+  static easeOut(t) {
+    return t * (2 - t);
+  }
+  static easeIn(t) {
+    return t * t;
+  }
 }
 
 // 需要await的函数列表
@@ -852,6 +910,8 @@ function parseFragment(sceneNum){
   document.body.appendChild(script);
   
   console.log('解析command完成，已生成新的片段函数');
+  //打印至terminal
+  terminal.innerHTML += '<details><summary class="unselectable">片段函数</summary>'+ffunctions+'</details>';//折叠元素
 }
 
 // 创建自定义事件 - 片段播放完成
@@ -871,7 +931,7 @@ class fragmentDateClock {
     // 计算前面所有片段的时间总和
     let previousFragmentsTime = 0;
     for(let i = 0; i < playState.currentFragment; i++){
-      previousFragmentsTime += calculatePonderFragmentTime(i);
+      previousFragmentsTime += calculateTime.fragmentTime(i);
     }
     // 返回当前场景时间减去前面所有片段的时间总和
     return this.scene() - previousFragmentsTime * 1000; // 乘以1000将秒转换为毫秒
@@ -1049,17 +1109,6 @@ function startProgressCheck() {
 // 场景总时间缓存
 let sceneTotalTimeCache = null;
 
-// 计算并缓存场景总时间
-function calculateSceneTotalTime() {
-  let totalSceneTime = 0;
-  for(let i = 0; i < fragmentTotal; i++) {
-    totalSceneTime += calculatePonderFragmentTime(i);
-  }
-  console.log('当前场景总时间:',totalSceneTime);
-  sceneTotalTimeCache = totalSceneTime;
-  return totalSceneTime;
-}
-
 //进度条
 const progressFill = document.getElementById('ponder-create-progress-fill');
 const ProgressBar = {
@@ -1071,7 +1120,7 @@ const ProgressBar = {
   },
   start(){
     // 计算场景总时间
-    const totalTime = calculateSceneTotalTime();
+    const totalTime = calculateTime.sceneTotalTime();
     
     if (totalTime > 0) {
       // 先移除过渡效果，立即归零
@@ -1168,7 +1217,7 @@ function switchToScene(sceneNum) {
   parseFragment(sceneNum);
   
   // 创建新场景的基础
-  CreateBase(sceneNum);
+  createBase.checkSet(sceneNum);
   
   // 重置进度条
   ProgressBar.reset();
@@ -1240,7 +1289,7 @@ function replayScene() {
 function checkFragmentSwitch(){//检查是否需要切换片段
   // 使用片段时间时钟检查当前片段是否已播放完成
   const currentFragmentTime = fragmentClock.fragment() / 1000; // 转换为秒
-  const currentFragmentDuration = calculatePonderFragmentTime(playState.currentFragment);
+  const currentFragmentDuration = calculateTime.fragmentTime(playState.currentFragment);
   
   // 如果当前片段播放时间超过预估持续时间，且不是最后一个片段，则触发片段完成事件
   if(playState.currentFragment < fragmentTotal-1 && currentFragmentTime >= currentFragmentDuration){
@@ -1250,144 +1299,157 @@ function checkFragmentSwitch(){//检查是否需要切换片段
 }
 
 // 计算 ponderFragment(x) 函数中所有函数将会使用的时间
-function calculatePonderFragmentTime(fragmentNum) {
-  // 通过fragmentNum获取对应的函数
-  const fragmentFunction = window['ponderFragment'+fragmentNum];
-  if(!fragmentFunction){
-    console.error(`未找到ponderFragment${fragmentNum}函数`);
-    return 0;
-  }
-  // 将函数转换为字符串
-  const functionString = fragmentFunction.toString();
-  
-  // 提取函数体
-  const functionBody = functionString.match(/{([\s\S]*)}/)[1];
-  
-  // 按行分割函数体
-  const lines = functionBody.split('\n');
-  
-  let totalTime = 0;
-  
-  // 定义每个函数的执行时间（秒）
-  const functionTimes = {
-    'idle': (params) => {
-      // idle(duration) - 执行时间为指定的秒数
-      const duration = parseFloat(params[0]);
-      return isNaN(duration) ? 0 : duration;
-    },
-    'setblock': () => 0, // 立即执行，时间为 0
-    'setblockfall': (params) => {
-      // setblockfall(block, x, y, z, duration) - 执行时间为 duration 秒
-      // 注意：多个setblockfall通常是并行执行的，所以只计算一次
-      const duration = parseFloat(params[4]);
-      return isNaN(duration) ? 0 : duration;
-    },
-    'fill': () => 0, // 立即执行，时间为 0
-    'fillfall': (params) => {
-      // fillfall(block, x1, y1, z1, x2, y2, z2, duration) - 执行时间为 duration 秒
-      // 虽然fillfall函数内部调用多个setblockfall，但它们是并行执行的，所以只计算一次duration
-      const duration = parseFloat(params[7]);
-      return isNaN(duration) ? 0 : duration;
-    },
-    'tip': (params) => {
-      // tip(x, y, z, text, color, duration) - 执行时间为 duration + 1 秒
-      // 包括：边框动画(0.5秒) + 文本显示(duration) + 文本淡出(0.5秒)
-      const duration = parseFloat(params[5]);
-      return (isNaN(duration) ? 0 : duration) + 1;
-    },
-    'tiparea': (params) => {
-      // tiparea(x1, y1, z1, x2, y2, z2, text, color, duration) - 执行时间为 duration + 1 秒
-      // 包括：边框动画(0.5秒) + 文本显示(duration) + 文本淡出(0.5秒)
-      const duration = parseFloat(params[8]);
-      return (isNaN(duration) ? 0 : duration) + 1;
-    },
-    'moveCamera': (params) => {
-      // moveCamera(isAsync, x, y, z, duration) - 执行时间为 duration 秒
-      // 只有当第一个参数为 'false' 或 false 时，才需要等待并计算时间
-      const duration = parseFloat(params[4]);
-      const needsWait = params[0] === 'false' || params[0] === false;
-      return needsWait ? (isNaN(duration) ? 0 : duration) : 0;
-    },
-    'removeblockup': (params) => {
-      // removeblockup(x, y, z, duration) - 执行时间为 duration 秒
-      const duration = parseFloat(params[3]);
-      return isNaN(duration) ? 0 : duration;
-    },
-    'removeareaup': (params) => {
-      // removeareaup(x1, y1, z1, x2, y2, z2, duration) - 执行时间为 duration 秒
-      const duration = parseFloat(params[6]);
-      return isNaN(duration) ? 0 : duration;
-    },
-    'cleanscene': (params) => {
-      // cleanscene(isAsync) - 特殊处理，内部调用 removeareaup
-      // 特殊处理：检查是否有默认 duration 参数
-      const hasDuration = params.length > 1 && !isNaN(parseFloat(params[1]));
-      const duration = hasDuration ? parseFloat(params[1]) : 1; // 默认 1 秒
-      return duration;
-    },
-    'CreateBase': () => 0, // 立即执行，时间为 0
-    'removeblock': () => 0, // 立即执行，时间为 0
-    'removearea': () => 0, // 立即执行，时间为 0
-    'moveBlock': (params) => {
-      // moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) - 执行时间为 duration 秒
-      const duration = parseFloat(params[6]);
-      return isNaN(duration) ? 0 : duration;
-    },
-    'fadeBlock': (params) => {
-      // fadeBlock(x, y, z, startOpacity, endOpacity, duration) - 执行时间为 duration 秒
-      const duration = parseFloat(params[5]);
-      return isNaN(duration) ? 0 : duration;
+class CalculateTime{
+  fragmentTime(fragmentNum) {
+    // 通过fragmentNum获取对应的函数
+    const fragmentFunction = window['ponderFragment'+fragmentNum];
+    if(!fragmentFunction){
+      console.error(`未找到ponderFragment${fragmentNum}函数`);
+      return 0;
     }
-  };
+    // 将函数转换为字符串
+    const functionString = fragmentFunction.toString();
+    
+    // 提取函数体
+    const functionBody = functionString.match(/{([\s\S]*)}/)[1];
   
-  // 遍历每一行
-  for (const line of lines) {
-    // 去除行首尾的空白字符
-    const trimmedLine = line.trim();
+    // 按行分割函数体
+    const lines = functionBody.split('\n');
     
-    // 跳过空行和注释
-    if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*') || trimmedLine.startsWith('*')) {
-      continue;
-    }
+    let totalTime = 0;
     
-    // 检查是否包含函数调用
-    for (const [funcName, timeCalculator] of Object.entries(functionTimes)) {
-      // 创建正则表达式来匹配函数调用
-      const regex = new RegExp(`${funcName}\\s*\\(([^)]*)\\)`);
-      const match = trimmedLine.match(regex);
+    // 定义每个函数的执行时间（秒）
+    const functionTimes = {
+      'idle': (params) => {
+        // idle(duration) - 执行时间为指定的秒数
+        const duration = parseFloat(params[0]);
+        return isNaN(duration) ? 0 : duration;
+      },
+      'setblock': () => 0, // 立即执行，时间为 0
+      'setblockfall': (params) => {
+        // setblockfall(block, x, y, z, duration) - 执行时间为 duration 秒
+        // 注意：多个setblockfall通常是并行执行的，所以只计算一次
+        const duration = parseFloat(params[4]);
+        return isNaN(duration) ? 0 : duration;
+      },
+      'fill': () => 0, // 立即执行，时间为 0
+      'fillfall': (params) => {
+        // fillfall(block, x1, y1, z1, x2, y2, z2, duration) - 执行时间为 duration 秒
+        // 虽然fillfall函数内部调用多个setblockfall，但它们是并行执行的，所以只计算一次duration
+        const duration = parseFloat(params[7]);
+        return isNaN(duration) ? 0 : duration;
+      },
+      'tip': (params) => {
+        // tip(x, y, z, text, color, duration) - 执行时间为 duration + 1 秒
+        // 包括：边框动画(0.5秒) + 文本显示(duration) + 文本淡出(0.5秒)
+        const duration = parseFloat(params[5]);
+        return (isNaN(duration) ? 0 : duration) + 1;
+      },
+      'tiparea': (params) => {
+        // tiparea(x1, y1, z1, x2, y2, z2, text, color, duration) - 执行时间为 duration + 1 秒
+        // 包括：边框动画(0.5秒) + 文本显示(duration) + 文本淡出(0.5秒)
+        const duration = parseFloat(params[8]);
+        return (isNaN(duration) ? 0 : duration) + 1;
+      },
+      'moveCamera': (params) => {
+        // moveCamera(isAsync, x, y, z, duration) - 执行时间为 duration 秒
+        // 只有当第一个参数为 'false' 或 false 时，才需要等待并计算时间
+        const duration = parseFloat(params[4]);
+        const needsWait = params[0] === 'false' || params[0] === false;
+        return needsWait ? (isNaN(duration) ? 0 : duration) : 0;
+      },
+      'removeblockup': (params) => {
+        // removeblockup(x, y, z, duration) - 执行时间为 duration 秒
+        const duration = parseFloat(params[3]);
+        return isNaN(duration) ? 0 : duration;
+      },
+      'removeareaup': (params) => {
+        // removeareaup(x1, y1, z1, x2, y2, z2, duration) - 执行时间为 duration 秒
+        const duration = parseFloat(params[6]);
+        return isNaN(duration) ? 0 : duration;
+      },
+      'cleanscene': (params) => {
+        // cleanscene(isAsync) - 特殊处理，内部调用 removeareaup
+        // 特殊处理：检查是否有默认 duration 参数
+        const hasDuration = params.length > 1 && !isNaN(parseFloat(params[1]));
+        const duration = hasDuration ? parseFloat(params[1]) : 1; // 默认 1 秒
+        return duration;
+      },
+      'removeblock': () => 0, // 立即执行，时间为 0
+      'removearea': () => 0, // 立即执行，时间为 0
+      'moveBlock': (params) => {
+        // moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) - 执行时间为 duration 秒
+        const duration = parseFloat(params[6]);
+        return isNaN(duration) ? 0 : duration;
+      },
+      'fadeBlock': (params) => {
+        // fadeBlock(x, y, z, startOpacity, endOpacity, duration) - 执行时间为 duration 秒
+        const duration = parseFloat(params[5]);
+        return isNaN(duration) ? 0 : duration;
+      }
+    };
+    
+    // 遍历每一行
+    for (const line of lines) {
+      // 去除行首尾的空白字符
+      const trimmedLine = line.trim();
       
-      if (match) {
-        // 提取参数
-        const params = match[1].split(',').map(param => param.trim());
+      // 跳过空行和注释
+      if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*') || trimmedLine.startsWith('*')) {
+        continue;
+      }
+      
+      // 检查是否包含函数调用
+      for (const [funcName, timeCalculator] of Object.entries(functionTimes)) {
+        // 创建正则表达式来匹配函数调用
+        const regex = new RegExp(`${funcName}\\s*\\(([^)]*)\\)`);
+        const match = trimmedLine.match(regex);
         
-        // 根据ffawait数组判断是否需要await
-        let needsAwait = false;
-        
-        // 检查是否匹配ffawait数组中的任何模式
-        for (const awaitPattern of ffawait) {
-          // 使用正则表达式检查是否匹配
-          const regex = new RegExp(`\\b${awaitPattern.replace('(', '\\s*\\(')}`);
-          if (regex.test(trimmedLine)) {
-            needsAwait = true;
-            break;
+        if (match) {
+          // 提取参数
+          const params = match[1].split(',').map(param => param.trim());
+          
+          // 根据ffawait数组判断是否需要await
+          let needsAwait = false;
+          
+          // 检查是否匹配ffawait数组中的任何模式
+          for (const awaitPattern of ffawait) {
+            // 使用正则表达式检查是否匹配
+            const regex = new RegExp(`\\b${awaitPattern.replace('(', '\\s*\\(')}`);
+            if (regex.test(trimmedLine)) {
+              needsAwait = true;
+              break;
+            }
           }
+          
+          // 计算函数执行时间
+          const time = timeCalculator(params);
+          
+          // 只有需要await的函数才累加时间
+          if (needsAwait) {
+            totalTime += time;
+          }
+          
+          break; // 跳出循环，避免重复计算
         }
-        
-        // 计算函数执行时间
-        const time = timeCalculator(params);
-        
-        // 只有需要await的函数才累加时间
-        if (needsAwait) {
-          totalTime += time;
-        }
-        
-        break; // 跳出循环，避免重复计算
       }
     }
+    
+    return totalTime;
   }
-  
-  return totalTime;
+  // 计算并缓存场景总时间
+  sceneTotalTime() {
+    let totalSceneTime = 0;
+    for(let i = 0; i < fragmentTotal; i++) {
+      totalSceneTime += this.fragmentTime(i);
+    }
+    console.log('当前场景总时间:',totalSceneTime);
+    sceneTotalTimeCache = totalSceneTime;
+    return totalSceneTime;
+  }
 }
+const calculateTime = new CalculateTime();
+
 
 // ========================================
 // UI 交互与按钮管理
@@ -1519,11 +1581,6 @@ class PonderButtonManager {
       progressFill.style.width = `${progress * 100}%`;
     }
     
-    // 更新进度文本
-    const progressText = document.getElementById('ponder-progress-text');
-    if (progressText) {
-      progressText.textContent = `${Math.round(progress * 100)}%`;
-    }
   }
   //通过CSS class检查
   toggleDeveloperMode() {
@@ -1531,7 +1588,7 @@ class PonderButtonManager {
     const isActive = developerModeButton.classList.contains('active');
     developerModeButton.classList.toggle('active');
     developerModeButton.querySelector('.ponder-button-tag').textContent = isActive ? '切换为开发者' : '切换为用户';
-    developerModeUI.terminal(isActive);
+    developerModeUI.terminal(!isActive); // 修复：传入切换后的状态
   }
   
   // 显示/隐藏用户模式按钮
@@ -1593,3 +1650,4 @@ renderPonderUI();
 updateNavigationArrows();
 
 window.addEventListener('resize', renderPonderUI);
+

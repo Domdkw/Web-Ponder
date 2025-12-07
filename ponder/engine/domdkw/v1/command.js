@@ -36,7 +36,7 @@ function moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) 
       const progress = Math.min(elapsed / duration, 1);
       
       // 应用缓动函数
-      const easedProgress = easeInOut(progress);
+      const easedProgress = transition.easeInOut(progress);
       
       // 直接更新位置，避免创建临时变量
       blockToMove.position.x = startX + (targetX - startX) * easedProgress;
@@ -102,7 +102,7 @@ function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
       const progress = Math.min(elapsed / duration, 1);
       
       // 应用缓动函数
-      const easedProgress = easeInOut(progress);
+      const easedProgress = transition.easeInOut(progress);
       
       // 直接计算透明度，避免使用THREE.MathUtils.lerp
       blockToFade.material.opacity = startOpacity + (endOpacity - startOpacity) * easedProgress;
@@ -363,7 +363,7 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
       const progress = Math.min(elapsed / duration, 1);
       
       // 应用缓动函数
-      const easedProgress = easeInOut(progress);
+      const easedProgress = transition.easeInOut(progress);
       
       // 直接计算位置，避免使用THREE.MathUtils.lerp
       blockGroup.position.y = centerY + (targetY - centerY) * easedProgress;
@@ -573,7 +573,7 @@ async function tip(x, y, z, text, color, duration) {
   function updateOutlineAnimation() {
     const elapsed = (Date.now() - startTime) / 1000;
     const rawProgress = Math.min(elapsed / animationDuration, 1);
-    const progress = easeInOut(rawProgress);
+    const progress = transition.easeInOut(rawProgress);
     
     // 更新顶面位置
     for (let i = 0; i < topEdgeMeshes.length; i++) {
@@ -841,7 +841,7 @@ async function tiparea(x1, y1, z1, x2, y2, z2, text, color, duration) {
   function updateOutlineAnimation() {
     const elapsed = (Date.now() - startTime) / 1000;
     const rawProgress = Math.min(elapsed / animationDuration, 1);
-    const progress = easeInOut(rawProgress);
+    const progress = transition.easeInOut(rawProgress);
     
     // 更新顶面位置
     for (let i = 0; i < topEdgeMeshes.length; i++) {
@@ -956,7 +956,7 @@ function moveCamera(isAsync, x, y, z, duration) {
       if (!startTime) startTime = timestamp;
       const elapsed = (timestamp - startTime) / 1000; // 转换为秒
       const progress = Math.min(elapsed / duration, 1); // 0到1的进度
-      const easedProgress = easeInOut(progress); // 应用缓动函数
+      const easedProgress = transition.easeInOut(progress); // 应用缓动函数
       
       // 使用线性插值计算当前位置
       const currentPos = new THREE.Vector3().lerpVectors(startPos, targetPos, easedProgress);
@@ -1178,7 +1178,7 @@ function removeareaup(x1, y1, z1, x2, y2, z2, duration) {
       const progress = Math.min(elapsed / duration, 1);
       
       // 应用缓动函数
-      const easedProgress = easeInOut(progress);
+      const easedProgress = transition.easeInOut(progress);
       
       // 更新组的位置
       blockGroup.position.y = centerY + (targetY - centerY) * easedProgress;

@@ -9,11 +9,10 @@
 "loader":{
   "indexes":"/ponder/engine/domdkw/v1/1.21.6.texture.mapping.json",
   "boot":"/ponder/engine/domdkw/v1/nogltf.boot.html",
-  "block":[
-    "minecraft:dirt",
-    "minecraft:mossy_stone_bricks",
-    "minecraft:bedrock",
-    "minecraft:coal_ore"
+  "import":[
+    "minecraft.block",
+    "minecraft.particle",
+    "create.block"
   ]
 },
 "scenes":[
@@ -64,9 +63,6 @@
     ]
   },
   {
-    "base":{
-      "default":"none"
-    },
     "fragment":[
       [
         "fillfall('minecraft:coal_ore',-1,0,-1,1,0,1,2)",
