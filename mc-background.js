@@ -2,16 +2,30 @@ const imgBatch = [
   "2412",
   "2501",
   "2502",
+  "2512",
   "create",
 ];
-const imgLink = [
-  ["https://i.postimg.cc",'wB0z0pYJ','sfBBQn5K','L4rJzzTS','QCWr8K9k','Tw16s4Ts','wvrpYQvj','hhWRf4VF','NjtLnBSP','8zbsQxVk','nLcrHTH4','xTMcgcxz','QM4tV5tR','hjXGmjQh','x8HTs4R2','Px05Qj1y','9F5f4cmF','DfbZySKM','QdSNn5pH','QxQd1vCg','htKPrMQk','rpmy6mJg','bJSzJB4t','N0zsQcCt','5ycfFmMk',
-    'MHk38znj','SxZZx6X4','WbvYWbRB','2y4ckgW9','05mH0K4G','ZKx71t4C','sgf6z6gK','ydRnj2L6','KjyfHQWP','66dYvJ7Y','0NbVMzmw','GtJKwG0Z',
-]
+
+// 支持day/night主题的图片ID数组
+const dayNightThemes = [
+  "2412",
+  "2501",
+  "2512"
 ];
+
+// 镜像源配置
+const imgMirror = [
+  'cdn.jsdelivr.net',
+  'jsd.onmicrosoft.cn'
+];
+
 // 获取用户选择的全景图，如果没有选择则使用随机选择
-let userSelectedPanorama = typeof sti_panorama !== 'undefined' ? sti_panorama : "none";
+let userSelectedPanorama = typeof sti !== 'undefined' && typeof sti.panorama !== 'undefined' ? sti.panorama : "none";
+let userSelectedMirror = typeof sti !== 'undefined' && typeof sti.imgMirror !== 'undefined' ? sti.imgMirror : "local";
 let imgDate, theme;
+
+// 初始化imgDomain变量
+let imgDomain = 0; // 默认使用本地资源
 
 if (userSelectedPanorama !== "none") {
   // 如果用户选择了特定的全景图，则解析选择
@@ -23,7 +37,7 @@ if (userSelectedPanorama !== "none") {
   imgDate = imgBatch[Math.floor(Math.random() * imgBatch.length)];
   const hours = new Date().getHours();
   theme = "null";
-  if (imgDate === "2412" || imgDate === "2501") {
+  if (dayNightThemes.includes(imgDate)) {
     if (hours <= 7 || hours > 18) {
       theme = "night";
     } else {
@@ -31,79 +45,18 @@ if (userSelectedPanorama !== "none") {
     }
   }
 }
+
+// 根据用户选择的镜像源设置imgDomain
+if (userSelectedMirror === "local") {
+  imgDomain = 0;
+} else if (userSelectedMirror === "jsDeliver") {
+  imgDomain = 1;
+} else if (userSelectedMirror === "onmicrosoft") {
+  imgDomain = 2;
+}
 // 保留本地图片源功能模块但默认不启用
 // 仅当需要时通过参数启用
 const enableLocalSource = false; // 设置为true以启用本地资源
-const velocity = 0.0004;
-
-
-// RTT 函数优化 - 添加更好的资源清理
-function RTT(url, timeout = 5000) {
-  return new Promise((resolve) => {
-    let img = new Image();
-    const st = performance.now();
-    let isTimeout = false;
-    let timer = null;
-    
-    const cleanup = () => {
-      if (timer) clearTimeout(timer);
-      img.onload = null;
-      img.onerror = null;
-      img.src = ''; // 清除图片引用
-      img = null;
-    };
-    
-    img.onload = () => {
-      if (isTimeout) return;
-      const et = performance.now();
-      const rtt = et - st;
-      resolve(rtt);
-      cleanup();
-    };
-    
-    img.onerror = () => {
-      if (isTimeout) return;
-      resolve(-1);
-      cleanup();
-    };
-    
-    timer = setTimeout(() => {
-      isTimeout = true;
-      resolve(-1);
-      cleanup();
-    }, timeout);
-    
-    img.src = '//'+url+'/favicon.ico';
-  })
-}
-//img-choose
-//mirror
-const imgMirror = ['i.postimg.cc'];
-let imgDomain = 0, minImgRTT = -1;// 0: 本地 1: 远程;
-
-// 添加控制变量，用于禁用镜像检测功能
-const disableMirrorDetection = true;
-
-// 修改后的镜像检测逻辑
-// 通过变量控制是否执行镜像检测
-let promises = [];
-if (!disableMirrorDetection) {
-  promises = imgMirror.map((url, index) => 
-    RTT(url).then(rtt => {
-      // 原子化更新最小值
-      if (rtt > 0) {
-        performance.mark(`mirror-test-${index}`);
-        const currentMin = minImgRTT;
-        if (currentMin === -1 || rtt < currentMin) {
-          minImgRTT = rtt;
-          imgDomain = index + 1; // 索引从1开始
-        }
-        performance.measure(`mirror-${index}`, `mirror-test-${index}`);
-      }
-      return { index, rtt };
-    })
-  );
-}
 
 // 将函数定义提升到文件顶部
 function loadMcPanorama() {
@@ -126,8 +79,6 @@ function loadMcPanorama() {
   renderer.toneMappingExposure = 0.65;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputEncoding = THREE.sRGBEncoding;
-  // 移除 LinearToneMapping，它会覆盖 ACESFilmicToneMapping
-  // renderer.toneMapping = THREE.LinearToneMapping;
   renderer.gammaOutput = false;
   renderer.domElement.style.zIndex = '-1'; // 设置低于前景画布的z-index
   window.addEventListener('resize', onWindowResize, false);
@@ -163,17 +114,12 @@ function loadMcPanorama() {
   function getImageUrl(n) {
     let imgUrl = null;
     if (imgDomain === 0) {
+      // 本地资源
       imgUrl = `./panorama/${imgDate}_${theme}_${n}.png`;
     } else {
-      const imgBatchToNum = {"2412": 0, "2501": 1, "2502":2, "create":3,};
-      const themeToNum = {"day": 0, "night": 1, "null": 2}; // 添加"null"主题的支持
-      let imgOutlinkKey = null;
-      if(imgDate === "2501" || imgDate === "2412") {
-        imgOutlinkKey = imgLink[imgDomain-1][ imgBatchToNum[imgDate] * 12 + themeToNum[theme]*6 + n+1 ];
-      } else {
-        imgOutlinkKey = imgLink[imgDomain-1][ imgBatchToNum[imgDate] * 6 + 12 + n+1 ];
-      }
-      imgUrl = `${imgLink[imgDomain-1][0]}/${imgOutlinkKey}/${imgDate}-${theme}-${n}.png`;
+      // CDN 资源
+      const cdnDomain = imgMirror[imgDomain - 1];
+      imgUrl = `https://${cdnDomain}/gh/Domdkw/Web-Ponder@master/panorama/${imgDate}_${theme}_${n}.png`;
     }
     return imgUrl;
   }
@@ -252,7 +198,7 @@ function loadMcPanorama() {
   
   // 创建材质的函数
   function createMaterial() {
-    // 创建一个临时材质，稍后会更新纹理
+    // 创建一个基本材质，不受光照影响
     const material = new THREE.MeshBasicMaterial({
       color: new THREE.Color(0xffffff), // 初始设置为白色
       transparent: false
@@ -260,7 +206,6 @@ function loadMcPanorama() {
     return material;
   }
   
-  // 更新材质纹理的函数
   // 更新材质纹理的函数
   function updateMaterialTexture(material, img) {
     // 创建纹理
@@ -421,7 +366,14 @@ function loadMcPanorama() {
               }, 1000);
             }, 1000);
           }
-        }),
+        },
+        (tex) =>{
+          tex.encoding = THREE.sRGBEncoding;
+          tex.format = THREE.RGBFormat;
+          tex.minFilter = THREE.LinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+        }
+        ),
         color: new THREE.Color(0xffffff), // 确保颜色为白色
       });
     }
@@ -472,9 +424,12 @@ function loadMcPanorama() {
   camera.position.z = 1.5;
 
   // 获取用户设置的帧率限制，默认为30帧
-  const targetFPS = typeof sti_panorama_fps !== 'undefined' ? parseInt(sti_panorama_fps) : 30;
+  const targetFPS = typeof sti !== 'undefined' && typeof sti.panorama_fps !== 'undefined' ? parseInt(sti.panorama_fps) : 30;
   const frameInterval = 1000 / targetFPS; // 计算每帧之间的时间间隔（毫秒）
   let lastFrameTime = 0;
+  
+  // 恢复全景图旋转速度变量
+  const velocity = 0.0004;
 
   // 计划动画
   const animate = (timestamp) => {
@@ -496,37 +451,10 @@ function loadMcPanorama() {
   });
 }
 
-// 修改 Promise.allSettled 的回调部分
-// 增强兜底逻辑
-// 通过变量控制是否执行镜像检测逻辑
-if (!disableMirrorDetection) {
-  Promise.allSettled(promises).then(results => {
-    const validResults = results
-      .filter(r => r.status === 'fulfilled' && r.value.rtt > 0)
-      .map(r => r.value);
-
-    if (validResults.length === 0) {
-      console.warn('All mirrors failed, using local resources');
-      imgDomain = 0;
-      minImgRTT = -1;
-    } else {
-      // 找到响应最快的镜像
-      const fastest = validResults.reduce((prev, current) => 
-        current.rtt < prev.rtt ? current : prev
-      );
-      imgDomain = fastest.index + 1;
-      minImgRTT = fastest.rtt;
-    }
-    const {loadinfo:mrtl1}= SNLB('img', false);
-    mrtl1.innerHTML = `<span class="file-tag y mr">mc-background.js</span>=>imgMirror: ${imgDomain}, imgDate: ${imgDate}, theme: ${theme}`;
-  });
-} else {
-  // 禁用镜像检测时，直接使用本地资源
-  imgDomain = 0;
-  minImgRTT = -1;
-  const {loadinfo:mrtl2, loadstate:mrts2}= SNLB('imgWarn', false);
-  mrts2.style.backgroundColor = '#dbbe03b3';
-  mrtl2.style.fontSize = '14px'
-  mrtl2.style.fontWeight = 'normal'
-  mrtl2.innerHTML = `<span class="file-tag y mr">mc-background.js</span>=>imgDomain=0,'use local'.imgDate: ${imgDate}, theme: ${theme}<br>⚠The image mirror source has been disabled.<br>-The image transfer rate may be affected.UI option cannot be operated.<br>-at mc-background.js enabledLocalSource=false`;
-}
+// 显示镜像源信息
+const {loadinfo:mrtl2, loadstate:mrts2}= SNLB('imgWarn', false);
+mrts2.style.backgroundColor = '#dbbe03b3';
+mrtl2.style.fontSize = '14px'
+mrtl2.style.fontWeight = 'normal'
+const cdnSource = imgDomain > 0 ? imgMirror[imgDomain - 1] : 'local';
+mrtl2.innerHTML = `<span class="file-tag y mr">mc-background.js</span>=>imgDomain=${imgDomain} (${cdnSource}), imgDate: ${imgDate}, theme: ${theme}`;

@@ -1,23 +1,27 @@
 const title_main = document.getElementById("title");
 let LS_accept = localStorage.getItem('LS_accept') || false;
 //sti let start
-let sti_moreOoops = false;
-let sti_panorama = "none"; // 新增：存储用户选择的全景图
-let sti_ooops_lang = "auto"; // 新增：存储用户选择的ooops语言
-let sti_audio_file = 'random';// 全局变量用于存储音频文件设置
-let sti_showConsole = true; // 新增：存储用户选择的显示控制台选项
-let sti_panorama_fps = "30"; // 新增：存储用户选择的全景图帧数限制
+let sti = {
+  moreOoops: false,
+  panorama: "none", // 存储用户选择的全景图
+  imgMirror: "local", // 存储用户选择的全景图镜像源
+  ooops_lang: "auto", // 存储用户选择的ooops语言
+  audio_file: 'random', // 存储音频文件设置
+  showConsole: true, // 存储用户选择的显示控制台选项
+  panorama_fps: "30" // 存储用户选择的全景图帧数限制
+};
 //sti let end
 //自动应用LS信息25.7.31
 if(LS_accept && localStorage.getItem('sti')){
   const stiObj = JSON.parse( localStorage.getItem('sti') );
   stiObj.forEach(function(i){//单个键值
     switch(i.id){
-      case 'sti-moreooops':sti_moreOoops = i.value;break;
-      case 'sti-panorama':sti_panorama = i.value;break; // 新增：加载用户选择的全景图
-      case 'sti-ooops-lang':sti_ooops_lang = i.value;break; // 新增：加载用户选择的ooops语言
-      case 'sti-showConsole':sti_showConsole = i.value;break; // 新增：加载用户选择的显示控制台选项
-      case 'sti-panorama-fps':sti_panorama_fps = i.value;break; // 新增：加载用户选择的全景图帧数限制
+      case 'sti-moreooops':sti.moreOoops = i.value;break;
+      case 'sti-panorama':sti.panorama = i.value;break; // 加载用户选择的全景图
+      case 'sti-imgMirror':sti.imgMirror = i.value;break; // 加载用户选择的全景图镜像源
+      case 'sti-ooops-lang':sti.ooops_lang = i.value;break; // 加载用户选择的ooops语言
+      case 'sti-showConsole':sti.showConsole = i.value;break; // 加载用户选择的显示控制台选项
+      case 'sti-panorama-fps':sti.panorama_fps = i.value;break; // 加载用户选择的全景图帧数限制
     }
   });
 }
@@ -174,7 +178,7 @@ function hiddenlang(){
       // 如果是ooops支持的语言，也需要更新ooops数据
         if(selectedLanguageId === 'zh-CN' || selectedLanguageId === 'en-US') {
           // 如果当前已下载的语言与目标语言不同，则清除旧的ooops文本
-          let targetOoopsLanguage = sti_ooops_lang === "auto" ? selectedLanguageId : sti_ooops_lang;
+          let targetOoopsLanguage = sti.ooops_lang === "auto" ? selectedLanguageId : sti.ooops_lang;
           
           // 如果用户选择的是"auto"，则根据当前选择的语言自动选择
           if(targetOoopsLanguage === "auto") {
@@ -187,7 +191,7 @@ function hiddenlang(){
           }
           
           // 如果启用了更多ooops信息，则重新加载ooops
-          if(sti_moreOoops) {
+          if(sti.moreOoops) {
             (async () => {
               // 如果当前已下载的语言与目标语言不同，或者没有下载任何语言，则重新下载
               if(DlOoops !== targetOoopsLanguage) {
@@ -259,9 +263,9 @@ let DlOoops = ''; // 默认值为空字符串，表示未下载任何ooops文件
 if(DlOoopsStr){
   DlOoops = DlOoopsStr; // 直接存储语言代码字符串
 }
-if(sti_moreOoops){//不仅检查moreooops是否启用，并且检查用户是否同意使用LS
+if(sti.moreOoops){//不仅检查moreooops是否启用，并且检查用户是否同意使用LS
   (async ()=>{//下载对应语言的文本
-    let targetLang = sti_ooops_lang; // 获取用户选择的语言
+    let targetLang = sti.ooops_lang; // 获取用户选择的语言
     
     // 如果用户选择的是"auto"，则根据浏览器语言自动选择
     if(targetLang === "auto") {
@@ -511,33 +515,38 @@ const options = {
           }
         break;
       case 'select':
-        // 如果是指定全景图的选项，需要更新全局变量并提示用户需要刷新页面
-        if(sti.id === 'sti-panorama') {
-          sti_panorama = sti.querySelector('select').value;
-          // 提示用户需要刷新页面才能看到效果
-          terminal.innerHTML = '全景图设置已更改，请刷新页面以应用更改';
+        // 如果是全景图镜像源的选项，需要更新全局变量
+        if(sti.id === 'sti-imgMirror') {
+          sti.imgMirror = sti.querySelector('select').value;
+          terminal.innerHTML = '全景图镜像源已更改为: ' + sti.imgMirror;
         }
-        // 如果是指定ooops语言的选项，需要更新全局变量并提示用户需要刷新页面
-        if(sti.id === 'sti-ooops-lang') {
-          sti_ooops_lang = sti.querySelector('select').value;
-          // 提示用户需要刷新页面才能看到效果
-          terminal.innerHTML = 'ooops语言设置已更改，请刷新页面以应用更改';
-        }
+        // 如果是指定全景图的选项，需要更新全局变量
+      if(sti.id === 'sti-panorama') {
+        sti.panorama = value;
+        // 提示用户需要刷新页面才能看到效果
+        terminal.innerHTML = '全景图设置已更改，请刷新页面以应用更改';
+      }
+      // 如果是指定ooops语言的选项，需要更新全局变量并提示用户需要刷新页面
+      if(sti.id === 'sti-ooops-lang') {
+        sti.ooops_lang = value;
+        // 提示用户需要刷新页面才能看到效果
+        terminal.innerHTML = 'ooops语言设置已更改，请刷新页面以应用更改';
+      }
         // 如果是指定音频文件的选项，需要更新全局变量并提示用户需要刷新页面
-        if(sti.id === 'sti-audio-file') {
-          sti_audio_file = sti.querySelector('select').value;
-          // 提示用户需要刷新页面才能看到效果
-          terminal.innerHTML = '背景音乐设置已更改，请刷新页面以应用更改';
-        }
+      if(sti.id === 'sti-audio-file') {
+        sti.audio_file = value;
+        // 提示用户需要刷新页面才能看到效果
+        terminal.innerHTML = '背景音乐设置已更改，请刷新页面以应用更改';
+      }
         // 如果是显示控制台的选项，需要更新全局变量
-        if(sti.id === 'sti-showConsole') {
-          sti_showConsole = sti.querySelector('input[type=checkbox]').checked;
-        }
-        // 如果是全景图帧数限制的选项，需要更新全局变量
-        if(sti.id === 'sti-panorama-fps') {
-          sti_panorama_fps = sti.querySelector('select').value;
-          terminal.innerHTML = '全景图帧数限制已更改为 ' + sti_panorama_fps + ' 帧';
-        }
+      if(sti.id === 'sti-showConsole') {
+        sti.showConsole = value;
+      }
+      // 如果是全景图帧数限制的选项，需要更新全局变量
+      if(sti.id === 'sti-panorama-fps') {
+        sti.panorama_fps = value;
+        terminal.innerHTML = '全景图帧数限制已更改为 ' + sti.panorama_fps + ' 帧';
+      }
         break;
     }
   }
@@ -578,23 +587,23 @@ const options = {
         sISelect.value = i.value;
         // 如果是指定全景图的选项，需要更新全局变量
         if(i.id === 'sti-panorama') {
-          sti_panorama = i.value;
+          sti.panorama = i.value;
         }
         // 如果是指定ooops语言的选项，需要更新全局变量
         if(i.id === 'sti-ooops-lang') {
-          sti_ooops_lang = i.value;
+          sti.ooops_lang = i.value;
         }
         // 如果是指定音频文件的选项，需要更新全局变量
         if(i.id === 'sti-audio-file') {
-          sti_audio_file = i.value;
+          sti.audio_file = i.value;
         }
         // 如果是显示控制台的选项，需要更新全局变量
         if(i.id === 'sti-showConsole') {
-          sti_showConsole = i.value;
+          sti.showConsole = i.value;
         }
         // 如果是全景图帧数限制的选项，需要更新全局变量
         if(i.id === 'sti-panorama-fps') {
-          sti_panorama_fps = i.value;
+          sti.panorama_fps = i.value;
         }
       break;
     }
@@ -616,23 +625,23 @@ const options = {
       result.push({id: sI.id,value: value});
       // 如果是指定全景图的选项，需要更新全局变量
       if(sI.id === 'sti-panorama') {
-        sti_panorama = value;
+        sti.panorama = value;
       }
       // 如果是指定ooops语言的选项，需要更新全局变量
       if(sI.id === 'sti-ooops-lang') {
-        sti_ooops_lang = value;
+        sti.ooops_lang = value;
       }
       // 如果是指定音频文件的选项，需要更新全局变量
       if(sI.id === 'sti-audio-file') {
-        sti_audio_file = value;
+        sti.audio_file = value;
       }
       // 如果是显示控制台的选项，需要更新全局变量
       if(sI.id === 'sti-showConsole') {
-        sti_showConsole = value;
+        sti.showConsole = value;
       }
       // 如果是全景图帧数限制的选项，需要更新全局变量
       if(sI.id === 'sti-panorama-fps') {
-        sti_panorama_fps = value;
+        sti.panorama_fps = value;
       }
     break;
     }
