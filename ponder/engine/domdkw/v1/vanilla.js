@@ -752,7 +752,6 @@ LoadingManager.onLoad = async () => {//主要加载步骤
   // 先加载 CSS2DRenderer 模块
   try {
     await loadTHREECSS2DRenderer();
-    window.CSS2DRenderer = new window.CSS2DRenderer(renderer);
     console.log('[LoadingManager] CSS2DRenderer finished.');
   } catch (error) {
     console.error('[LoadingManager] CSS2DRenderer error:', error);
@@ -923,9 +922,15 @@ class fragmentDateClock {
   //计量单位 scene(all fragments) fragment(one fragment)
   start(){
     this.startTime = Date.now();
+    this.pausedTime = 0;
+    this.isPaused = false;
+    this.pauseStartTime = null;
   }
   scene(){//返回相对于当前场景的时间
-    return Date.now() - this.startTime;
+    if (this.isPaused) {
+      return this.pauseStartTime - this.startTime - this.pausedTime;
+    }
+    return Date.now() - this.startTime - this.pausedTime;
   }
   fragment(){//返回相对于当前片段的时间
     // 计算前面所有片段的时间总和
@@ -938,6 +943,20 @@ class fragmentDateClock {
   }
   clear(){//重置时钟
     this.startTime = null;
+    this.pausedTime = 0;
+    this.isPaused = false;
+    this.pauseStartTime = null;
+  }
+  pause(){
+    if (this.isPaused) return;
+    this.isPaused = true;
+    this.pauseStartTime = Date.now();
+  }
+  resume(){
+    if (!this.isPaused) return;
+    this.isPaused = false;
+    this.pausedTime += Date.now() - this.pauseStartTime;
+    this.pauseStartTime = null;
   }
 }
 
@@ -977,6 +996,7 @@ async function playFragment(i) {
   
   // 创建新的生成器对象，确保使用最新的函数定义
   const generator = fragmentFunction();
+  currentGenerator = generator; // 保存当前生成器到全局变量
   playState.isStopped = false;
   playState.isPlaying = true;
   
@@ -1119,10 +1139,10 @@ const ProgressBar = {
     console.log('重置进度条');
   },
   start(){
-    // 计算场景总时间
-    const totalTime = calculateTime.sceneTotalTime();
+    // 计算场景总时间并缓存
+    sceneTotalTimeCache = calculateTime.sceneTotalTime();
     
-    if (totalTime > 0) {
+    if (sceneTotalTimeCache > 0) {
       // 先移除过渡效果，立即归零
       progressFill.style.transitionDuration = '0.1s';
       progressFill.style.width = '0%';
@@ -1131,7 +1151,7 @@ const ProgressBar = {
       void progressFill.offsetWidth;
       
       // 设置过渡时间为场景总时间，启动动画
-      progressFill.style.transitionDuration = totalTime+'s';
+      progressFill.style.transitionDuration = sceneTotalTimeCache+'s';
       progressFill.style.width = '100%';
     }
   },
@@ -1144,31 +1164,21 @@ const ProgressBar = {
     
     // 保持当前进度
     progressFill.style.width = currentWidth;
-  }
-}
-
-// 更新导航箭头的显示状态
-function updateNavigationArrows() {
-  const leftArrow = document.getElementById('ponder-create-btn-left');
-  const rightArrow = document.getElementById('ponder-create-btn-right');
-  
-  if (!leftArrow || !rightArrow) {
-    console.warn('导航箭头按钮未找到');
-    return;
-  }
-  
-  // 如果是第一个场景，隐藏左箭头
-  if (playState.currentScene <= 0) {
-    leftArrow.style.display = 'none';
-  } else {
-    leftArrow.style.display = 'block';
-  }
-  
-  // 如果是最后一个场景，隐藏右箭头
-  if (playState.currentScene >= sceneTotal - 1) {
-    rightArrow.style.display = 'none';
-  } else {
-    rightArrow.style.display = 'block';
+  },
+  resume(){
+    // 获取当前进度
+    const currentWidth = window.getComputedStyle(progressFill).width;
+    const currentPercent = parseFloat(currentWidth) / parseFloat(window.getComputedStyle(progressFill.parentElement).width) * 100;
+    
+    // 使用缓存的总时间，避免重复计算
+    const totalTime = sceneTotalTimeCache || calculateTime.sceneTotalTime();
+    const remainingTime = totalTime * (1 - currentPercent / 100);
+    
+    if (remainingTime > 0) {
+      // 设置剩余时间的过渡效果
+      progressFill.style.transitionDuration = remainingTime+'s';
+      progressFill.style.width = '100%';
+    }
   }
 }
 
@@ -1228,24 +1238,28 @@ function switchToScene(sceneNum) {
   }, 100);
   
   // 更新导航箭头的显示状态
-  updateNavigationArrows();
-  // 如果正在播放，开始播放新场景的第一个片段
-  if (playState.isPlaying) {
-    // 如果有正在运行的异步操作，取消它
-    if (playState.currentPromise) {
-      playState.currentPromise.cancel();
-      playState.currentPromise = null;
-    }
+  window.PonderUIManager.updateNavigationArrows();
+  
+  // 取消任何正在运行的异步操作
+  if (playState.currentPromise) {
+    playState.currentPromise.cancel();
+    playState.currentPromise = null;
   }
   
-  // 标记为已停止，等待当前异步操作完成
-  playState.isStopped = true;
+  // 重置播放状态，确保新场景能正常播放
+  playState.isStopped = false;
+  playState.isPlaying = true;
   
-  // 确保当前异步操作完全停止后再播放新片段
-  setTimeout(() => {
-    // 播放新场景的第一个片段
-    playFragment(playState.currentFragment);
-  }, 100);
+  // 清理任何可能存在的暂停状态
+  if (pausedGenerator) {
+    pausedGenerator = null;
+  }
+  if (pausedPromise) {
+    pausedPromise = null;
+  }
+  
+  // 立即播放新场景的第一个片段
+  playFragment(playState.currentFragment);
 }
 
 // 切换到上一个场景
@@ -1262,21 +1276,9 @@ function nextScene() {
   }
 }
 
-
-// 切换自动播放
-function toggleAutoPlay() {
-  playState.autoPlay = !playState.autoPlay;
-  
-  // 更新UI状态
-  updateUIState();
-}
-
 // 切换慢速模式
 function toggleSlowMode() {
   playState.slowMode = !playState.slowMode;
-  
-  // 更新UI状态
-  updateUIState();
 }
 
 // 重新播放当前场景
@@ -1450,6 +1452,371 @@ class CalculateTime{
 }
 const calculateTime = new CalculateTime();
 
+// 全局变量，用于保存和恢复播放状态
+let pausedGenerator = null;
+let pausedFragmentIndex = -1;
+let pausedPromise = null;
+let currentGenerator = null; // 当前正在执行的生成器
+
+// 动画暂停器类 - 专门负责动画的暂停和恢复
+class AnimationPauser {
+  constructor() {
+  }
+  
+  // 暂停动画播放
+  pause() {
+    if (this.isPaused) return;
+    
+    console.log('AnimationPauser: 暂停动画播放');
+    this.isPaused = true;
+    
+    // 保存当前播放状态
+    if (playState.isPlaying) {
+      // 保存生成器状态
+      pausedGenerator = currentGenerator;
+      pausedFragmentIndex = playState.currentFragment;
+      
+      // 保存当前Promise（如果有）
+      pausedPromise = playState.currentPromise;
+      
+      // 暂停动画播放
+      playState.isPlaying = false;
+      playState.isStopped = true;
+      
+      // 取消动画帧循环
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      
+      // 暂停片段时间时钟
+      if (fragmentClock && typeof fragmentClock.pause === 'function') {
+        fragmentClock.pause();
+      }
+    }
+  }
+  
+  // 恢复动画播放
+  resume() {
+    if (!this.isPaused) return;
+    
+    console.log('AnimationPauser: 恢复动画播放');
+    this.isPaused = false;
+    
+    // 恢复播放状态
+    playState.isPlaying = true;
+    playState.isStopped = false;
+    
+    // 恢复片段时间时钟
+    if (fragmentClock && typeof fragmentClock.resume === 'function') {
+      fragmentClock.resume();
+    }
+    
+    // 重新启动动画
+    if (pausedFragmentIndex >= 0) {
+      // 如果存在保存的生成器，则继续执行
+      if (pausedGenerator) {
+        currentGenerator = pausedGenerator;
+        setTimeout(() => {
+          continueFragmentExecution();
+        }, 100);
+      } else {
+        // 否则重新播放当前片段
+        setTimeout(() => {
+          playFragment(pausedFragmentIndex);
+        }, 100);
+      }
+    }
+    
+    // 清理保存的状态
+    pausedGenerator = null;
+    pausedFragmentIndex = -1;
+    pausedPromise = null;
+  }
+}
+
+class IdentifyMode {
+  constructor() {
+    this.isActive = false;
+    this.animationPauser = new AnimationPauser();
+    this.raycaster = new THREE.Raycaster();
+    this.mouse = new THREE.Vector2();
+    this.highlightedBlock = null;
+    this.highlightOutline = null;
+    this.labelRenderer = null;
+    this.blockLabel = null;
+    this.mouseMoveHandler = this.handleMouseMove.bind(this);
+    this.clickHandler = this.handleClick.bind(this);
+  }
+  
+  run() {
+    if (this.isActive) return;
+    
+    console.log('IdentifyMode: 开始识别模式，暂停动画播放');
+    this.isActive = true;
+    
+    // 使用动画控制器暂停动画播放
+    this.animationPauser.pause();
+    
+    // 初始化CSS2DRenderer
+    this.initCSS2DRenderer();
+    
+    // 添加鼠标事件监听器
+    renderer.domElement.addEventListener('mousemove', this.mouseMoveHandler);
+    renderer.domElement.addEventListener('click', this.clickHandler);
+    
+    // 设置鼠标样式
+    renderer.domElement.style.cursor = 'crosshair';
+    
+    // 启动识别模式的渲染循环
+    this.startIdentifyRenderLoop();
+  }
+  
+  stop() {
+    if (!this.isActive) return;
+    
+    console.log('IdentifyMode: 结束识别模式，恢复动画播放');
+    this.isActive = false;
+    
+    // 移除鼠标事件监听器
+    renderer.domElement.removeEventListener('mousemove', this.mouseMoveHandler);
+    renderer.domElement.removeEventListener('click', this.clickHandler);
+    
+    // 恢复鼠标样式
+    renderer.domElement.style.cursor = 'default';
+    
+    // 清除高亮效果和标签
+    this.clearHighlight();
+    
+    // 停止识别模式的渲染循环
+    this.stopIdentifyRenderLoop();
+    
+    // 使用动画控制器恢复动画播放
+    this.animationPauser.resume();
+  }
+  
+  startIdentifyRenderLoop() {
+    if (this.identifyRenderLoopId) {
+      cancelAnimationFrame(this.identifyRenderLoopId);
+    }
+    
+    const renderLoop = () => {
+      if (!this.isActive) return;
+      
+      // 渲染WebGL场景
+      renderer.render(scene, camera);
+      
+      // 渲染CSS2D标签（如果可用）
+      if (this.labelRenderer) {
+        this.labelRenderer.render(scene, camera);
+      }
+      
+      // 继续下一帧
+      this.identifyRenderLoopId = requestAnimationFrame(renderLoop);
+    };
+    
+    this.identifyRenderLoopId = requestAnimationFrame(renderLoop);
+  }
+  
+  stopIdentifyRenderLoop() {
+    if (this.identifyRenderLoopId) {
+      cancelAnimationFrame(this.identifyRenderLoopId);
+      this.identifyRenderLoopId = null;
+    }
+  }
+  
+  initCSS2DRenderer() {
+    if (window.CSS2DRenderer) {
+      // 创建CSS2DRenderer实例，而不是直接引用类
+      this.labelRenderer = new window.CSS2DRenderer();
+      
+      // 设置CSS2DRenderer的DOM元素
+      this.labelRenderer.setSize(window.innerWidth, window.innerHeight);
+      this.labelRenderer.domElement.style.position = 'absolute';
+      this.labelRenderer.domElement.style.top = '0px';
+      this.labelRenderer.domElement.style.pointerEvents = 'none';
+      this.labelRenderer.domElement.style.zIndex = '12'; // 设置在Three.js渲染器(10)和终端(15)之间
+      
+      // 将CSS2DRenderer的DOM元素添加到页面中
+      document.body.appendChild(this.labelRenderer.domElement);
+      
+      console.log('CSS2DRenderer 已初始化');
+    } else {
+      console.warn('CSS2DRenderer 未找到，标签显示功能将不可用');
+    }
+  }
+  
+  handleMouseMove(event) {
+    if (!this.isActive) return;
+    
+    // 计算鼠标在归一化设备坐标中的位置
+    const rect = renderer.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    // 执行射线检测
+    this.performRaycast();
+  }
+  
+  handleClick(event) {
+    if (!this.isActive) return;
+    
+    // 点击时显示方块详细信息
+    if (this.highlightedBlock) {
+      console.log('点击方块:', this.highlightedBlock.name, '位置:', this.highlightedBlock.position);
+    }
+  }
+  
+  performRaycast() {
+    // 更新射线投射器
+    this.raycaster.setFromCamera(this.mouse, camera);
+    
+    // 获取场景中的所有方块（Mesh对象）
+    const blocks = scene.children.filter(child => child.type === 'Mesh');
+    
+    // 执行射线检测
+    const intersects = this.raycaster.intersectObjects(blocks);
+    
+    if (intersects.length > 0) {
+      const intersect = intersects[0];
+      this.highlightBlock(intersect.object);
+    } else {
+      this.clearHighlight();
+    }
+  }
+  
+  highlightBlock(block) {
+    if (this.highlightedBlock === block) return;
+    
+    // 清除之前的高亮
+    this.clearHighlight();
+    
+    // 设置当前高亮方块
+    this.highlightedBlock = block;
+    
+    // 创建边框高亮效果
+    this.createHighlightOutline(block);
+    
+    // 显示方块类型标签
+    this.showBlockLabel(block);
+  }
+  
+  createHighlightOutline(block) {
+    // 创建边框几何体 - 使用BoxGeometry而不是block.geometry来避免共享问题
+    const outlineGeometry = new THREE.BoxGeometry(1.02, 1.02, 1.02); // 稍微放大一点以包裹方块
+    const edges = new THREE.EdgesGeometry(outlineGeometry);
+    const outlineMaterial = new THREE.LineBasicMaterial({ 
+      color: 0xffff00, 
+      linewidth: 5,
+      transparent: true,
+      opacity: 0.8
+    });
+    
+    this.highlightOutline = new THREE.LineSegments(edges, outlineMaterial);
+    this.highlightOutline.position.copy(block.position);
+    scene.add(this.highlightOutline);
+  }
+  
+  showBlockLabel(block) {
+    if (!this.labelRenderer) return;
+    
+    // 创建标签元素
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'block-label';
+    
+    
+    labelDiv.textContent = block.name;
+    labelDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    labelDiv.style.color = '#ffffff';
+    labelDiv.style.padding = '4px 8px';
+    labelDiv.style.borderRadius = '4px';
+    labelDiv.style.fontSize = '12px';
+    labelDiv.style.fontFamily = 'Arial, sans-serif';
+    labelDiv.style.pointerEvents = 'none';
+    labelDiv.style.border = '1px solid rgba(255, 255, 0, 0.5)';
+    labelDiv.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.3)';
+    
+    // 创建CSS2D对象
+    this.blockLabel = new window.CSS2DObject(labelDiv);
+    this.blockLabel.position.copy(block.position);
+    this.blockLabel.position.y += 0.8; // 在方块上方显示
+    scene.add(this.blockLabel);
+    
+    // 确保CSS2DRenderer在渲染循环中更新
+    if (this.labelRenderer && this.labelRenderer.domElement) {
+      this.labelRenderer.domElement.style.zIndex = '20';
+    }
+  }
+  
+  clearHighlight() {
+    // 移除边框高亮
+    if (this.highlightOutline) {
+      scene.remove(this.highlightOutline);
+      this.highlightOutline.geometry.dispose();
+      this.highlightOutline.material.dispose();
+      this.highlightOutline = null;
+    }
+    
+    // 移除标签
+    if (this.blockLabel) {
+      scene.remove(this.blockLabel);
+      this.blockLabel = null;
+    }
+    
+    this.highlightedBlock = null;
+  }
+}
+
+// 继续执行片段（从暂停的位置继续）
+async function continueFragmentExecution() {
+  if (!currentGenerator) {
+    console.error('没有可继续执行的生成器');
+    return;
+  }
+  
+  playState.isStopped = false;
+  playState.isPlaying = true;
+  
+  // 存储当前可取消的Promise引用
+  let currentPromise = null;
+  
+  // 继续执行片段函数
+  while(!playState.isStopped){
+    try {
+      const {value, done} = currentGenerator.next();
+      
+      if (done) {
+        // 片段执行完成，触发退出循环
+        break;
+      }
+      
+      // 如果有返回值且是 Promise，则等待它完成
+      if (value instanceof Promise) {
+        // 创建可取消的Promise
+        currentPromise = createCancellablePromise(value);
+        playState.currentPromise = currentPromise; // 存储到playState中，以便外部可以取消
+        
+        await currentPromise;
+        
+        // 检查是否在等待过程中被停止
+        if (playState.isStopped) {
+          console.log(`片段在异步操作中被停止`);
+          return;
+        }
+      } else {
+        console.log('Fragment returned value:', value);
+      }
+      
+    } catch (error) {
+      console.error(`执行片段时发生错误:`, error);
+      break;
+    }
+  }
+}
+
+const identifyMode = new IdentifyMode();
+
+
 
 // ========================================
 // UI 交互与按钮管理
@@ -1462,8 +1829,7 @@ window.switchToScene = switchToScene;
 window.replayScene = replayScene;
 window.toggleSlowMode = toggleSlowMode;
 
-// 按钮交互逻辑
-class PonderButtonManager {
+class PonderUIManager {
   constructor() {
     this.buttons = {};
     this.currentState = 'idle';
@@ -1539,9 +1905,13 @@ class PonderButtonManager {
   }
   
   toggleIdentifyMode() {
-    console.log('切换识别模式');
     const scanButton = document.getElementById('ponder-create-btn-explore');
     scanButton.classList.toggle('flash');
+    if (scanButton.classList.contains('flash')) {
+      identifyMode.run();
+    } else {
+      identifyMode.stop();
+    }
   }
   
   previousScene() {
@@ -1598,40 +1968,65 @@ class PonderButtonManager {
       developerModeButton.style.display = active ? 'block' : 'none';
     }
   }
-}
 
-// 渲染PonderUI
-function renderPonderUI() {
-  const buttonSize = '50';
-  const WW = window.innerWidth;
-  const WH = window.innerHeight;
-  const ponderControlButtons = document.getElementById('ponder-control-buttons').querySelectorAll('.ponder-button');
-  ponderControlButtons.forEach(button => {
-    if (!button.id) return;
-    switch(button.id) {
-      case 'ponder-create-btn-explore':
-        button.style.left = `${WW / 2 - buttonSize*4.5}px`;
-        break;
-      case 'ponder-create-btn-left':
-        button.style.left = `${WW / 2 - buttonSize*2}px`;
-        break;
-      case 'ponder-create-btn-close':
-        button.style.left = `${WW / 2 - buttonSize/2}px`;
-        break;
-      case 'ponder-create-btn-right':
-        button.style.left = `${WW / 2 + buttonSize*1}px`;
-        break;
-      case 'ponder-create-btn-replay':
-        button.style.left = `${WW / 2 + buttonSize*3}px`;
-        break;
-      case 'ponder-create-btn-slow-mode':
-        button.style.right = '64px';
-        break;
-      case 'ponder-create-btn-developer-mode':
-        button.style.right = '12px';
-        break;
+  // 渲染PonderUI
+  renderPonderUI() {
+    const buttonSize = '50';
+    const WW = window.innerWidth;
+    const WH = window.innerHeight;
+    const ponderControlButtons = document.getElementById('ponder-control-buttons').querySelectorAll('.ponder-button');
+    ponderControlButtons.forEach(button => {
+      if (!button.id) return;
+      switch(button.id) {
+        case 'ponder-create-btn-explore':
+          button.style.left = `${WW / 2 - buttonSize*4.5}px`;
+          break;
+        case 'ponder-create-btn-left':
+          button.style.left = `${WW / 2 - buttonSize*2}px`;
+          break;
+        case 'ponder-create-btn-close':
+          button.style.left = `${WW / 2 - buttonSize/2}px`;
+          break;
+        case 'ponder-create-btn-right':
+          button.style.left = `${WW / 2 + buttonSize*1}px`;
+          break;
+        case 'ponder-create-btn-replay':
+          button.style.left = `${WW / 2 + buttonSize*3}px`;
+          break;
+        case 'ponder-create-btn-slow-mode':
+          button.style.right = '64px';
+          break;
+        case 'ponder-create-btn-developer-mode':
+          button.style.right = '12px';
+          break;
+      }
+    });
+  }
+
+  // 更新导航箭头的显示状态
+  updateNavigationArrows() {
+    const leftArrow = document.getElementById('ponder-create-btn-left');
+    const rightArrow = document.getElementById('ponder-create-btn-right');
+    
+    if (!leftArrow || !rightArrow) {
+      console.warn('导航箭头按钮未找到');
+      return;
     }
-  });
+    
+    // 如果是第一个场景，隐藏左箭头
+    if (playState.currentScene <= 0) {
+      leftArrow.style.display = 'none';
+    } else {
+      leftArrow.style.display = 'block';
+    }
+    
+    // 如果是最后一个场景，隐藏右箭头
+    if (playState.currentScene >= sceneTotal - 1) {
+      rightArrow.style.display = 'none';
+    } else {
+      rightArrow.style.display = 'block';
+    }
+  }
 }
 
 const developerModeUI = {
@@ -1640,14 +2035,14 @@ const developerModeUI = {
   }
 }
 
-// 创建PonderButtonManager实例并暴露到全局
-window.ponderButtonManager = new PonderButtonManager();
+// 创建PonderUIManager实例并暴露到全局
+window.PonderUIManager = new PonderUIManager();
 
 // 初始化UI渲染
-renderPonderUI();
+window.PonderUIManager.renderPonderUI();
 
 // 初始化导航箭头状态
-updateNavigationArrows();
+window.PonderUIManager.updateNavigationArrows();
 
-window.addEventListener('resize', renderPonderUI);
+window.addEventListener('resize', window.PonderUIManager.renderPonderUI());
 
