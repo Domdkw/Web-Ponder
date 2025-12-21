@@ -61,7 +61,7 @@ MC-Panorama是一个基于Web的Minecraft物品可视化与交互式学习平台
     }
   },
   "loader": {
-    "indexes": "/ponder/engine/domdkw/v1/1.21.6.texture.mapping.json",
+    "indexes": "/ponder/engine/domdkw/v1/1.21.8.texture.mapping.json",
     "engine": ["domdkw/v1/vanilla.js"],
     "boot": {
       "html": "/ponder/engine/domdkw/v1/nogltf.boot.html"
@@ -107,7 +107,7 @@ MC-Panorama/
 │   │   │       ├── vanilla.js        # 核心渲染引擎
 │   │   │       ├── command.js        # 命令集实现
 │   │   │       ├── nogltf.boot.html  # 引擎启动引导
-│   │   │       └── 1.21.6.texture.mapping.json  # 纹理映射
+│   │   │       └── 1.21.8.texture.mapping.json  # 纹理映射
 │   │   └── create/     # Create引擎(待开发)
 │   ├── minecraft/     # Minecraft资源文件
 │   │   ├── textures/  # 纹理资源
@@ -132,7 +132,7 @@ MC-Panorama/
 1. 在 `ponder/minecraft/item/` 目录下添加物品图标
 2. 在 `ponder/item.json` 中添加物品配置
 3. 创建对应的流程配置文件到 `ponder/process/` 目录
-4. 如需新纹理，更新 `ponder/engine/domdkw/v1/1.21.6.texture.mapping.json`
+4. 如需新纹理，更新 `ponder/engine/domdkw/v1/1.21.8.texture.mapping.json`
 
 ### 自定义流程
 流程配置支持以下命令：

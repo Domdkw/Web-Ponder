@@ -730,8 +730,8 @@ function preloadBaseTextures() {
     loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
     // 将精灵图加载也加入Promise.all中，实现异步同时加载
     mcSpriteAtlas.load(
-      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.json',
-      '/ponder/minecraft/textures/block/1.21.6.basic.atlas.png',
+      '/ponder/minecraft/textures/block/1.21.8.basic.atlas.json',
+      '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
       LoadingManager  // 传入LoadingManager以跟踪精灵图加载进度
     )
   ]);
@@ -964,6 +964,7 @@ class fragmentDateClock {
 // 创建可取消的Promise包装器
 function createCancellablePromise(promise) {
   let isCancelled = false;
+  let cancelCallback = null;
   
   const cancellablePromise = new Promise(async (resolve, reject) => {
     try {
@@ -972,14 +973,23 @@ function createCancellablePromise(promise) {
         resolve(result);
       }
     } catch (error) {
-      if (!isCancelled) {
-        reject(error);
-      }
+      reject(new Error('Promise was cancelled'));
     }
   });
   
   cancellablePromise.cancel = () => {
     isCancelled = true;
+    console.log('Promise已取消');
+    
+    // 如果有取消回调，调用它
+    if (cancelCallback && typeof cancelCallback === 'function') {
+      cancelCallback();
+    }
+  };
+  
+  // 设置取消回调
+  cancellablePromise.setCancelCallback = (callback) => {
+    cancelCallback = callback;
   };
   
   return cancellablePromise;
@@ -1461,6 +1471,9 @@ let currentGenerator = null; // 当前正在执行的生成器
 // 动画暂停器类 - 专门负责动画的暂停和恢复
 class AnimationPauser {
   constructor() {
+    this.isPaused = false;
+    this.pausedTime = 0;
+    this.pauseStartTime = null;
   }
   
   // 暂停动画播放
@@ -1469,6 +1482,7 @@ class AnimationPauser {
     
     console.log('AnimationPauser: 暂停动画播放');
     this.isPaused = true;
+    this.pauseStartTime = Date.now();
     
     // 保存当前播放状态
     if (playState.isPlaying) {
@@ -1493,6 +1507,12 @@ class AnimationPauser {
       if (fragmentClock && typeof fragmentClock.pause === 'function') {
         fragmentClock.pause();
       }
+      
+      // 如果有正在执行的Promise，尝试取消它
+      if (pausedPromise && typeof pausedPromise.cancel === 'function') {
+        console.log('AnimationPauser: 取消当前执行的Promise');
+        pausedPromise.cancel();
+      }
     }
   }
   
@@ -1502,6 +1522,12 @@ class AnimationPauser {
     
     console.log('AnimationPauser: 恢复动画播放');
     this.isPaused = false;
+    
+    // 计算暂停时长并更新暂停时间
+    if (this.pauseStartTime) {
+      this.pausedTime += Date.now() - this.pauseStartTime;
+      this.pauseStartTime = null;
+    }
     
     // 恢复播放状态
     playState.isPlaying = true;
@@ -1517,8 +1543,28 @@ class AnimationPauser {
       // 如果存在保存的生成器，则继续执行
       if (pausedGenerator) {
         currentGenerator = pausedGenerator;
-        setTimeout(() => {
-          continueFragmentExecution();
+        // 使用 setTimeout 确保异步执行
+        setTimeout(async () => {
+          try {
+            // 继续执行当前片段，并获取执行结果
+            const completed = await continueFragmentExecution();
+            
+            // 检查是否需要继续下一个片段
+            if (completed && !playState.isStopped && playState.isPlaying) {
+              // 片段正常完成，触发片段完成事件以继续下一个片段
+              window.dispatchEvent(fragmentCompleteEvent);
+            } else if (!playState.isStopped && playState.isPlaying) {
+              // 片段未完成或被停止，继续进度检查
+              if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+              }
+              startProgressCheck();
+            }
+          } catch (error) {
+            console.error('AnimationPauser: 恢复动画时发生错误:', error);
+            // 发生错误时，尝试重新播放当前片段
+            playFragment(pausedFragmentIndex);
+          }
         }, 100);
       } else {
         // 否则重新播放当前片段
@@ -1539,14 +1585,40 @@ class IdentifyMode {
   constructor() {
     this.isActive = false;
     this.animationPauser = new AnimationPauser();
+    
+    // 性能优化：复用对象，避免频繁创建
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
+    this.currentPosition = new THREE.Vector3();
+    this.targetPosition = new THREE.Vector3();
+    
+    // 状态管理
     this.highlightedBlock = null;
     this.highlightOutline = null;
     this.labelRenderer = null;
     this.blockLabel = null;
+    
+    // 动画控制
+    this.animationFrameId = null;
+    this.identifyRenderLoopId = null;
+    this.animationStartTime = null;
+    this.animationDuration = 200; // 0.2秒
+    
+    // 事件处理
     this.mouseMoveHandler = this.handleMouseMove.bind(this);
     this.clickHandler = this.handleClick.bind(this);
+    
+    // 性能优化：缓存场景中的方块列表，避免每次射线检测都过滤
+    this.cachedBlocks = null;
+    this.lastBlockFilterTime = 0;
+    this.BLOCK_FILTER_CACHE_DURATION = 1000; // 缓存1秒
+    
+    // 性能优化：节流鼠标移动事件
+    this.lastMouseMoveTime = 0;
+    this.MOUSE_MOVE_THROTTLE = 16; // 约60fps
+    
+    // 性能优化：动画状态标志
+    this.isAnimating = false;
   }
   
   run() {
@@ -1585,11 +1657,17 @@ class IdentifyMode {
     // 恢复鼠标样式
     renderer.domElement.style.cursor = 'default';
     
+    // 停止所有动画
+    this.stopAnimation();
+    
     // 清除高亮效果和标签
     this.clearHighlight();
     
     // 停止识别模式的渲染循环
     this.stopIdentifyRenderLoop();
+    
+    // 清理缓存
+    this.cachedBlocks = null;
     
     // 使用动画控制器恢复动画播放
     this.animationPauser.resume();
@@ -1625,9 +1703,64 @@ class IdentifyMode {
     }
   }
   
+  // 缓动函数 - ease-in-out
+  easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+  
+  startSmoothAnimation() {
+    this.stopAnimation();
+    this.isAnimating = true;
+    
+    const animate = () => {
+      if (!this.isAnimating || !this.isActive) {
+        this.animationFrameId = null;
+        return;
+      }
+      
+      const elapsed = Date.now() - this.animationStartTime;
+      const progress = Math.min(elapsed / this.animationDuration, 1);
+      const easedProgress = this.easeInOut(progress);
+      
+      // 平滑插值位置
+      this.currentPosition.lerpVectors(this.currentPosition, this.targetPosition, easedProgress);
+      
+      // 更新边框位置
+      if (this.highlightOutline) {
+        this.highlightOutline.position.copy(this.currentPosition);
+      }
+      
+      // 更新标签位置
+      if (this.blockLabel) {
+        this.blockLabel.position.copy(this.currentPosition);
+        this.blockLabel.position.y += 0.8;
+      }
+      
+      // 如果动画未完成，继续下一帧
+      if (progress < 1) {
+        this.animationFrameId = requestAnimationFrame(animate);
+      } else {
+        this.isAnimating = false;
+        this.animationFrameId = null;
+      }
+    };
+    
+    this.animationFrameId = requestAnimationFrame(animate);
+  }
+  
+  stopAnimation() {
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+    this.isAnimating = false;
+  }
+  
   initCSS2DRenderer() {
+    if (this.labelRenderer) return; // 已经初始化
+    
     if (window.CSS2DRenderer) {
-      // 创建CSS2DRenderer实例，而不是直接引用类
+      // 创建CSS2DRenderer实例
       this.labelRenderer = new window.CSS2DRenderer();
       
       // 设置CSS2DRenderer的DOM元素
@@ -1635,7 +1768,7 @@ class IdentifyMode {
       this.labelRenderer.domElement.style.position = 'absolute';
       this.labelRenderer.domElement.style.top = '0px';
       this.labelRenderer.domElement.style.pointerEvents = 'none';
-      this.labelRenderer.domElement.style.zIndex = '12'; // 设置在Three.js渲染器(10)和终端(15)之间
+      this.labelRenderer.domElement.style.zIndex = '12';
       
       // 将CSS2DRenderer的DOM元素添加到页面中
       document.body.appendChild(this.labelRenderer.domElement);
@@ -1648,6 +1781,13 @@ class IdentifyMode {
   
   handleMouseMove(event) {
     if (!this.isActive) return;
+    
+    // 性能优化：节流鼠标移动事件
+    const now = performance.now();
+    if (now - this.lastMouseMoveTime < this.MOUSE_MOVE_THROTTLE) {
+      return;
+    }
+    this.lastMouseMoveTime = now;
     
     // 计算鼠标在归一化设备坐标中的位置
     const rect = renderer.domElement.getBoundingClientRect();
@@ -1667,12 +1807,28 @@ class IdentifyMode {
     }
   }
   
+  // 性能优化：缓存方块列表
+  getCachedBlocks() {
+    const now = performance.now();
+    
+    // 如果缓存有效，直接返回
+    if (this.cachedBlocks && (now - this.lastBlockFilterTime < this.BLOCK_FILTER_CACHE_DURATION)) {
+      return this.cachedBlocks;
+    }
+    
+    // 重新过滤并缓存
+    this.cachedBlocks = scene.children.filter(child => child.type === 'Mesh');
+    this.lastBlockFilterTime = now;
+    
+    return this.cachedBlocks;
+  }
+  
   performRaycast() {
     // 更新射线投射器
     this.raycaster.setFromCamera(this.mouse, camera);
     
-    // 获取场景中的所有方块（Mesh对象）
-    const blocks = scene.children.filter(child => child.type === 'Mesh');
+    // 使用缓存的方块列表
+    const blocks = this.getCachedBlocks();
     
     // 执行射线检测
     const intersects = this.raycaster.intersectObjects(blocks);
@@ -1688,14 +1844,22 @@ class IdentifyMode {
   highlightBlock(block) {
     if (this.highlightedBlock === block) return;
     
-    // 清除之前的高亮
-    this.clearHighlight();
-    
     // 设置当前高亮方块
     this.highlightedBlock = block;
     
-    // 创建边框高亮效果
-    this.createHighlightOutline(block);
+    // 如果边框不存在，创建边框
+    if (!this.highlightOutline) {
+      this.createHighlightOutline(block);
+      this.currentPosition.copy(block.position);
+      this.targetPosition.copy(block.position);
+    } else {
+      // 更新目标位置
+      this.targetPosition.copy(block.position);
+      this.animationStartTime = Date.now();
+      
+      // 启动动画
+      this.startSmoothAnimation();
+    }
     
     // 显示方块类型标签
     this.showBlockLabel(block);
@@ -1720,11 +1884,15 @@ class IdentifyMode {
   showBlockLabel(block) {
     if (!this.labelRenderer) return;
     
+    // 如果标签已存在，只更新内容
+    if (this.blockLabel) {
+      this.blockLabel.element.textContent = block.name;
+      return;
+    }
+    
     // 创建标签元素
     const labelDiv = document.createElement('div');
     labelDiv.className = 'block-label';
-    
-    
     labelDiv.textContent = block.name;
     labelDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
     labelDiv.style.color = '#ffffff';
@@ -1749,6 +1917,9 @@ class IdentifyMode {
   }
   
   clearHighlight() {
+    // 停止动画
+    this.stopAnimation();
+    
     // 移除边框高亮
     if (this.highlightOutline) {
       scene.remove(this.highlightOutline);
@@ -1771,7 +1942,7 @@ class IdentifyMode {
 async function continueFragmentExecution() {
   if (!currentGenerator) {
     console.error('没有可继续执行的生成器');
-    return;
+    return false; // 返回 false 表示执行失败
   }
   
   playState.isStopped = false;
@@ -1780,14 +1951,15 @@ async function continueFragmentExecution() {
   // 存储当前可取消的Promise引用
   let currentPromise = null;
   
-  // 继续执行片段函数
-  while(!playState.isStopped){
-    try {
+  try {
+    // 继续执行片段函数
+    while(!playState.isStopped){
       const {value, done} = currentGenerator.next();
       
       if (done) {
-        // 片段执行完成，触发退出循环
-        break;
+        // 片段执行完成，返回 true 表示正常完成
+        console.log('片段执行完成');
+        return true;
       }
       
       // 如果有返回值且是 Promise，则等待它完成
@@ -1796,22 +1968,36 @@ async function continueFragmentExecution() {
         currentPromise = createCancellablePromise(value);
         playState.currentPromise = currentPromise; // 存储到playState中，以便外部可以取消
         
-        await currentPromise;
-        
-        // 检查是否在等待过程中被停止
-        if (playState.isStopped) {
-          console.log(`片段在异步操作中被停止`);
-          return;
+        try {
+          await currentPromise;
+          
+          // 检查是否在等待过程中被停止
+          if (playState.isStopped) {
+            console.log(`片段在异步操作中被停止`);
+            return false; // 返回 false 表示被停止
+          }
+        } catch (error) {
+          if (error.message && error.message.includes('cancelled')) {
+            console.log('片段操作被取消');
+            return false;
+          } else {
+            console.error('片段异步操作出错:', error);
+            throw error;
+          }
         }
       } else {
         console.log('Fragment returned value:', value);
       }
-      
-    } catch (error) {
-      console.error(`执行片段时发生错误:`, error);
-      break;
     }
+  } catch (error) {
+    console.error(`执行片段时发生错误:`, error);
+    // 发生错误时，重置播放状态
+    playState.isStopped = true;
+    playState.isPlaying = false;
+    return false; // 返回 false 表示出错
   }
+  
+  return false; // 返回 false 表示被停止
 }
 
 const identifyMode = new IdentifyMode();

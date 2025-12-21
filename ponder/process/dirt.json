@@ -7,7 +7,7 @@
   }
 },
 "loader":{
-  "indexes":"/ponder/engine/domdkw/v1/1.21.6.texture.mapping.json",
+  "indexes":"/ponder/engine/domdkw/v1/1.21.8.texture.mapping.json",
   "boot":"/ponder/engine/domdkw/v1/nogltf.boot.html",
   "import":[
     "minecraft.block",
