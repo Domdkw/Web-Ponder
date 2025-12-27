@@ -931,99 +931,167 @@ class LanguageManager {
 const languageManager = new LanguageManager();
 
 
-// 定义 MCTextureLoader 类
-const MCTextureLoader = {
-  load(block, variant = null){
-    // 检查 MCTextureMap 是否已定义且包含该方块
-    if(block in window.MCTextureMap) {
-      switch (window.MCTextureMap[block].type) {
-        case 6:
-          // 对于类型6，直接返回贴图
-          if (loadedTexture[block]) {
-            return loadedTexture[block];
-          } else {
-            console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-            return null;
-          }
-        case 'x':
-          // 对于类型'x'，直接返回贴图
-          if (loadedTexture[block]) {
-            return loadedTexture[block];
-          } else {
-            console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-            return null;
-          }
-        case 'd':
-          // 对于类型'd'，使用 d 方法处理
-          return MCTextureLoader.d(MCTextureMap[block].map, block);
-        default:
-          // 默认情况，尝试返回贴图
-          if (loadedTexture[block]) {
-            return loadedTexture[block];
-          } else {
-            console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-            return null;
-          }
-      }//switch
+class MCTextureLoader {
+  constructor() {
+    this.textureCache = new Map();
+    this.blockModelCache = new Map();
+  }
+
+  load(block, variant = null) {
+    const blockName = this.extractBlockName(block);
+    const cacheKey = variant ? `${block}:${variant}` : block;
+
+    if (this.textureCache.has(cacheKey)) {
+      return this.textureCache.get(cacheKey);
+    }
+
+    const model = this.getModelForBlock(blockName);
+    if (!model) {
+      console.warn(`未找到方块 ${block} 的模型`);
+      return null;
+    }
+
+    const texture = this.loadTextureFromModel(model, blockName, variant);
+    if (texture) {
+      this.textureCache.set(cacheKey, texture);
+    }
+
+    return texture;
+  }
+
+  extractBlockName(block) {
+    if (typeof block === 'string') {
+      return block.includes(':') ? block.split(':')[1] : block;
+    }
+    return block;
+  }
+
+  getModelForBlock(blockName) {
+    if (this.blockModelCache.has(blockName)) {
+      return this.blockModelCache.get(blockName);
+    }
+
+    const modelId = `minecraft:block/${blockName}`;
+    const model = mcModelLoader.getModel(modelId);
+
+    if (model) {
+      this.blockModelCache.set(blockName, model);
+    }
+
+    return model;
+  }
+
+  loadTextureFromModel(model, blockName, variant) {
+    if (!model || !model.textures) {
+      return null;
+    }
+
+    const textures = model.textures;
+    const textureRef = textures.all || textures.particle || textures.side || textures.texture || textures.down;
+
+    if (!textureRef) {
+      console.warn(`模型 ${blockName} 没有可用的纹理引用`);
+      return null;
+    }
+
+    const texturePath = this.resolveTexturePath(textureRef);
+    if (!texturePath) {
+      return null;
+    }
+
+    return this.loadTexture(texturePath, blockName);
+  }
+
+  resolveTexturePath(textureRef) {
+    if (!textureRef || typeof textureRef !== 'string') {
+      return null;
+    }
+
+    if (textureRef.startsWith('#')) {
+      return null;
+    }
+
+    const parts = textureRef.split(':');
+    let namespace, path;
+
+    if (parts.length === 2) {
+      namespace = parts[0];
+      path = parts[1];
     } else {
-      // 如果没有找到贴图，尝试从精灵图中获取
-      const blockName = block.split(':')[1]; // 取:后字段
-      const spriteName = `${blockName}.png`; // 精灵图中的文件名
-      
-      // 尝试从精灵图中获取纹理
+      namespace = 'minecraft';
+      path = textureRef;
+    }
+
+    const spriteName = path.endsWith('.png') ? path : `${path}.png`;
+    const spritePath = spriteName.replace(/^block\//, '');
+
+    return {
+      namespace,
+      path,
+      spriteName,
+      spritePath
+    };
+  }
+
+  loadTexture(texturePath, blockName) {
+    const spriteName = texturePath.spriteName;
+
+    if (mcSpriteAtlas.hasSprite(spriteName)) {
       const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
-      
       if (spriteTexture) {
-        // 缓存纹理以供后续使用
-        loadedTexture[block] = spriteTexture;
-        console.log(`从精灵图加载纹理: ${spriteName}`);
+        console.log(`从精灵图加载纹理: ${spriteName} (方块: ${blockName})`);
         return spriteTexture;
-      } else {
-        console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-        return null;
       }
     }
-  },
-  
-  d(map, block) {
-    // 对于类型"d"，map是一个数组，需要特殊处理
-    // 这里假设数组的第一个元素是顶面贴图，第二个是侧面贴图
-    if (Array.isArray(map) && map.length >= 2) {
-      // 在实际实现中，可能需要创建一个组合贴图或者返回特定的贴图
-      // 目前我们返回第一个贴图作为示例
-      if (loadedTexture[block]) {
-        return loadedTexture[block];
-      } else {
-        console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-        return null;
-      }
+
+    console.warn(`未找到纹理: ${spriteName} (方块: ${blockName})`);
+    return null;
+  }
+
+  preloadTextures(blockList) {
+    const results = {};
+
+    for (const block of blockList) {
+      const texture = this.load(block);
+      results[block] = texture;
     }
-    // 如果不是预期的数组格式，直接返回
-    return map;
+
+    return results;
+  }
+
+  clearCache() {
+    this.textureCache.clear();
+    this.blockModelCache.clear();
+    console.log('[MCTextureLoader] 缓存已清除');
+  }
+
+  getCacheSize() {
+    return {
+      textures: this.textureCache.size,
+      models: this.blockModelCache.size
+    };
   }
 }
+
+const mcTextureLoader = new MCTextureLoader();
 
 // 预加载贴图
 function preloadBaseTextures() {
   const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
-  //通过读取sense.fragment获取需要预加载的方块
   const needBlock = [];
-  for (const scene of window.Process.scenes) {//遍历场景
-    if (!scene.fragment) continue;//如果场景没有fragment，跳过
-    
-    // 遍历场景中的所有片段
+
+  for (const scene of window.Process.scenes) {
+    if (!scene.fragment) continue;
+
     for (const fragment of scene.fragment) {
       if (!Array.isArray(fragment)) continue;
-      
-      // 遍历片段中的所有命令行
+
       for (const line of fragment) {
-        if (line.startsWith('//')) continue; // 跳过注释行
-        
-        // 检查是否包含方块函数并提取方块名称
+        if (line.startsWith('//')) continue;
+
         for (const func of blockFunction) {
           if (!line.includes(func)) continue;
-          
-          // 使用正则表达式提取方块名称
+
           const match = line.match(new RegExp(`${func}\\s*\\(\\s*'([^']+)'`));
           if (match?.[1] && !needBlock.includes(match[1])) {
             needBlock.push(match[1]);
@@ -1033,34 +1101,27 @@ function preloadBaseTextures() {
     }
   }
 
-  console.log('###########已预加载贴图############');
+  console.log('###########开始预加载贴图############');
+  console.log(`需要预加载的方块数量: ${needBlock.length}`);
+
   for (const block of needBlock) {
-    if(!(block in window.MCTextureMap)) {//如果方块不在贴图映射中
-      console.warn(`方块 ${block} 不在贴图映射中`);
-      continue;
-    }
-    const blockName = block.split(':')[1];//取:后字段
-    // 尝试从精灵图中预加载纹理
-    const spriteName = `${blockName}.png`;
-    if (mcSpriteAtlas.hasSprite(spriteName)) {
-      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
-      if (spriteTexture) {
-        loadedTexture[block] = spriteTexture;
-        console.log(spriteName);
-      }
+    const texture = mcTextureLoader.load(block);
+    if (texture) {
+      console.log(`已加载纹理: ${block}`);
+    } else {
+      console.warn(`未能加载纹理: ${block}`);
     }
   }
-  console.log('###############End###############');
 
-  // 处理场景中需要的特殊贴图
-  for (let i = 0; i < window.Process.scenes.length; i++) {//遍历场景,根据base设置预加载贴图
+  console.log('###############预加载完成###############');
+
+  for (let i = 0; i < window.Process.scenes.length; i++) {
     const scene = window.Process.scenes[i];
-    // 检查场景是否有base属性
     if (!scene.base) {
       console.log(`[PreloadBaseTexture] 场景${i+1}/${window.Process.scenes.length}没有base属性，跳过预加载`);
-      continue; // 继续处理下一个场景
+      continue;
     }
-    
+
     switch (scene.base.default) {
       case 'create':
         createBase.preloadTexture(scene.base.create, i);
@@ -1070,10 +1131,11 @@ function preloadBaseTextures() {
         break;
     }
   }
-  
-  // 标记纹理加载完成
+
   texturesLoaded = true;
   console.log('所有贴图预加载完成');
+  console.log(`纹理缓存大小: ${mcTextureLoader.getCacheSize().textures}`);
+  console.log(`模型缓存大小: ${mcTextureLoader.getCacheSize().models}`);
 };
 
 
