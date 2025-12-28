@@ -137,7 +137,7 @@ function setblock(block, x, y, z){
   // 检查目标位置是否已有方块，如果有则先移除
   removeblock(x, y, z);
   
-  const texture = MCTextureLoader.load(block);
+  const texture = mcTextureLoader.load(block);
   
   // 创建材质，使用对象字面量避免重复创建
   const materialOptions = {
@@ -181,12 +181,12 @@ function getReusableBoxGeometry() {
   }
   return reusableBoxGeometry;
 }
-// setblockfall 函数：放置方块并添加下落动画（优化版）
+//setblockfall 函数：放置方块并添加下落动画（优化版）
 function setblockfall(block, x, y, z, duration) {
   // 检查目标位置是否已有方块，如果有则先移除
   removeblock(x, y, z);
   
-  const texture = MCTextureLoader.load(block);
+  const texture = mcTextureLoader.load(block);
   
   // 创建材质，使用对象字面量
   const materialOptions = {
@@ -233,7 +233,7 @@ function fill(block, x1, y1, z1, x2, y2, z2){
   const maxZ = Math.max(z1, z2);
   
   // 预先加载纹理，避免重复查找
-  const texture = MCTextureLoader.load(block);
+  const texture = mcTextureLoader.load(block);
   
   // 批量创建方块，减少函数调用次数
   const blocksToAdd = [];
@@ -294,7 +294,7 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
   const maxZ = Math.max(z1, z2);
   
   // 预先加载纹理，避免重复查找
-  const texture = MCTextureLoader.load(block);
+  const texture = mcTextureLoader.load(block);
   
   // 创建一个组来包含所有方块
   const blockGroup = new THREE.Group();

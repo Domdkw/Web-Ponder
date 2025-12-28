@@ -36,9 +36,6 @@ window.addEventListener('resize', () => {
 // 全局变量与状态管理
 // ========================================
 
-// 预定义变量
-let MCTextureMap;
-
 // 片段切换 !!新，类似于M3U8播放器
 let playState = {
   isPlaying: false, //是否正在播放
@@ -72,7 +69,7 @@ lmopli.innerHTML = '<span class="file-tag y">THREE.LoadingManager</span>: 等待
 
 
 // ========================================
-// 精灵图管理类 - 使用Three.js原生纹理裁剪功能
+// mc管理类
 // ========================================
 
 class MCSpriteAtlas {
@@ -205,8 +202,1008 @@ class MCSpriteAtlas {
   }
 }
 
-// 全局精灵图管理器实例
-const mcSpriteAtlas = new MCSpriteAtlas();
+/**
+ * Minecraft 模型加载器类
+ * 负责加载、解析和管理 Minecraft 风格的 3D 模型数据
+ * 支持模型继承、纹理解析和缓存机制
+ */
+class MCModelLoader {
+  constructor() {
+    // 模型缓存，提高重复加载性能
+    this.modelCache = new Map();
+    
+    // 基础模型定义，提供常用的方块模型模板
+    this.baseModels = {
+      // 标准立方体模型，6个面分别对应不同纹理
+      'block/cube': {
+        elements: [
+          {
+            from: [0, 0, 0],
+            to: [16, 16, 16],
+            faces: {
+              down: { uv: [0, 16, 16, 0], texture: '#down', cullface: 'down' },
+              up: { uv: [0, 0, 16, 16], texture: '#up', cullface: 'up' },
+              north: { uv: [0, 0, 16, 16], texture: '#north', cullface: 'north' },
+              south: { uv: [0, 0, 16, 16], texture: '#south', cullface: 'south' },
+              west: { uv: [0, 0, 16, 16], texture: '#west', cullface: 'west' },
+              east: { uv: [0, 0, 16, 16], texture: '#east', cullface: 'east' }
+            }
+          }
+        ]
+      },
+      // 空模型，用于特殊方块
+      'block/block': {
+        elements: []
+      },
+      // 所有面使用相同纹理的立方体
+      'block/cube_all': {
+        parent: 'block/cube',
+        textures: {
+          particle: '#all',
+          down: '#all',
+          up: '#all',
+          north: '#all',
+          east: '#all',
+          south: '#all',
+          west: '#all'
+        }
+      },
+      // 柱状模型，侧面和端面使用不同纹理
+      'block/cube_column': {
+        parent: 'block/cube',
+        textures: {
+          particle: '#side',
+          down: '#end',
+          up: '#end',
+          north: '#side',
+          east: '#side',
+          south: '#side',
+          west: '#side'
+        }
+      },
+      // 所有面使用侧面纹理的立方体
+      'block/cube_side': {
+        parent: 'block/cube',
+        textures: {
+          particle: '#side',
+          down: '#side',
+          up: '#side',
+          north: '#side',
+          east: '#side',
+          south: '#side',
+          west: '#side'
+        }
+      }
+    };
+    
+    // 外部加载的模型数据
+    this.modelData = null;
+    // 加载状态标志
+    this.isLoading = false;
+  }
+
+async loadModelData(jsonPath) {
+    if (this.isLoading) {
+      console.warn('[MCModelLoader] 模型数据正在加载中，请稍候');
+      return;
+    }
+
+    try {
+      this.isLoading = true;
+      const response = await fetch(jsonPath);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      this.modelData = await response.json();
+      console.log(`[MCModelLoader] 模型数据加载成功: ${jsonPath}`);
+    } catch (error) {
+      console.error('[MCModelLoader] 模型数据加载失败:', error);
+      throw error;
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  resolveModel(modelId, inheritanceChain = []) {
+    if (inheritanceChain.includes(modelId)) {
+      console.warn(`[MCModelLoader] 检测到循环继承: ${inheritanceChain.join(' -> ')} -> ${modelId}`);
+      return null;
+    }
+
+    if (this.modelCache.has(modelId)) {
+      return this.modelCache.get(modelId);
+    }
+
+    let modelData = null;
+    const normalizedId = this.normalizeModelId(modelId);
+
+    if (this.baseModels[normalizedId]) {
+      modelData = JSON.parse(JSON.stringify(this.baseModels[normalizedId]));
+    } else if (this.modelData && this.modelData[normalizedId]) {
+      modelData = JSON.parse(JSON.stringify(this.modelData[normalizedId]));
+    } else if (this.baseModels[modelId]) {
+      modelData = JSON.parse(JSON.stringify(this.baseModels[modelId]));
+    } else if (this.modelData && this.modelData[modelId]) {
+      modelData = JSON.parse(JSON.stringify(this.modelData[modelId]));
+    } else {
+      console.warn(`[MCModelLoader] 未找到模型: ${modelId}`);
+      return null;
+    }
+
+    if (modelData.parent) {
+      const parentId = modelData.parent;
+      const parentModel = this.resolveModel(parentId, [...inheritanceChain, modelId]);
+
+      if (parentModel) {
+        modelData = this.mergeModelData(parentModel, modelData);
+      } else {
+        console.warn(`[MCModelLoader] 父模型不存在: ${parentId}`);
+      }
+    }
+
+    this.modelCache.set(modelId, modelData);
+    return modelData;
+  }
+
+  normalizeModelId(modelId) {
+    if (modelId.startsWith('minecraft:')) {
+      const path = modelId.substring(10);
+      if (path.startsWith('block/')) {
+        return path;
+      }
+      return `block/${path}`;
+    }
+    return modelId;
+  }
+
+  mergeModelData(parent, child) {
+    const merged = JSON.parse(JSON.stringify(parent));
+
+    if (child.textures) {
+      merged.textures = { ...parent.textures, ...child.textures };
+    }
+
+    if (child.elements) {
+      merged.elements = child.elements;
+    }
+
+    if (child.display) {
+      merged.display = { ...parent.display, ...child.display };
+    }
+
+    if (child.ambientocclusion !== undefined) {
+      merged.ambientocclusion = child.ambientocclusion;
+    }
+
+    if (child.loader) {
+      merged.loader = child.loader;
+    }
+
+    return merged;
+  }
+
+  resolveTextures(modelData) {
+    if (!modelData || !modelData.textures) {
+      return {};
+    }
+
+    const resolvedTextures = {};
+    const textureMap = modelData.textures;
+    const visited = new Set();
+
+    const resolveTexture = (textureRef) => {
+      if (!textureRef || typeof textureRef !== 'string') {
+        return textureRef;
+      }
+
+      if (!textureRef.startsWith('#')) {
+        return textureRef;
+      }
+
+      const varName = textureRef.substring(1);
+
+      if (visited.has(varName)) {
+        console.warn(`[MCModelLoader] 检测到纹理变量循环引用: ${varName}`);
+        return null;
+      }
+
+      visited.add(varName);
+
+      if (textureMap[varName]) {
+        const result = resolveTexture(textureMap[varName]);
+        visited.delete(varName);
+        return result;
+      }
+
+      visited.delete(varName);
+      return null;
+    };
+
+    for (const [key, value] of Object.entries(textureMap)) {
+      if (value) {
+        resolvedTextures[key] = resolveTexture(value);
+      }
+    }
+
+    return resolvedTextures;
+  }
+
+  getModel(modelId) {
+    if (!this.modelData) {
+      console.warn('[MCModelLoader] 模型数据未加载，请先调用loadModelData');
+      return null;
+    }
+
+    const modelData = this.resolveModel(modelId);
+    if (!modelData) {
+      return null;
+    }
+
+    const resolvedTextures = this.resolveTextures(modelData);
+
+    return {
+      id: modelId,
+      elements: modelData.elements || [],
+      textures: resolvedTextures,
+      display: modelData.display,
+      ambientocclusion: modelData.ambientocclusion !== undefined ? modelData.ambientocclusion : true
+    };
+  }
+
+  clearCache() {
+    this.modelCache.clear();
+    console.log('[MCModelLoader] 模型缓存已清除');
+  }
+
+  dispose() {
+    this.clearCache();
+    this.modelData = null;
+    console.log('[MCModelLoader] 已释放资源');
+  }
+
+  hasModel(modelId) {
+    const normalizedId = this.normalizeModelId(modelId);
+    if (this.baseModels[normalizedId] || this.baseModels[modelId]) {
+      return true;
+    }
+    if (this.modelData && (this.modelData[normalizedId] || this.modelData[modelId])) {
+      return true;
+    }
+    return false;
+  }
+
+  getModelInheritanceChain(modelId) {
+    const chain = [];
+    let currentId = modelId;
+    const visited = new Set();
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      chain.push(currentId);
+
+      let modelData = null;
+      const normalizedId = this.normalizeModelId(currentId);
+      
+      if (this.baseModels[normalizedId]) {
+        modelData = this.baseModels[normalizedId];
+      } else if (this.baseModels[currentId]) {
+        modelData = this.baseModels[currentId];
+      } else if (this.modelData && this.modelData[normalizedId]) {
+        modelData = this.modelData[normalizedId];
+      } else if (this.modelData && this.modelData[currentId]) {
+        modelData = this.modelData[currentId];
+      }
+
+      if (modelData && modelData.parent) {
+        currentId = modelData.parent;
+      } else {
+        break;
+      }
+    }
+
+    return chain;
+  }
+
+  getAllTextures(modelId) {
+    const model = this.getModel(modelId);
+    if (!model) {
+      return [];
+    }
+
+    const textures = new Set();
+    const elements = model.elements || [];
+
+    elements.forEach(element => {
+      if (element.faces) {
+        Object.values(element.faces).forEach(face => {
+          if (face.texture && typeof face.texture === 'string' && !face.texture.startsWith('#')) {
+            textures.add(face.texture);
+          }
+        });
+      }
+    });
+
+    Object.values(model.textures || {}).forEach(textureRef => {
+      if (textureRef && typeof textureRef === 'string' && !textureRef.startsWith('#')) {
+        textures.add(textureRef);
+      }
+    });
+
+    return Array.from(textures);
+  }
+
+  async preloadModels(modelIds) {
+    const results = {};
+
+    for (const modelId of modelIds) {
+      try {
+        const model = this.getModel(modelId);
+        if (model) {
+          results[modelId] = { success: true, model };
+        } else {
+          results[modelId] = { success: false, error: 'Model not found' };
+        }
+      } catch (error) {
+        results[modelId] = { success: false, error: error.message };
+      }
+    }
+
+    return results;
+  }
+
+  getModelInfo(modelId) {
+    const model = this.getModel(modelId);
+    if (!model) {
+      return null;
+    }
+
+    return {
+      id: model.id,
+      hasParent: this.hasParent(modelId),
+      parent: this.getParentId(modelId),
+      inheritanceChain: this.getModelInheritanceChain(modelId),
+      elementCount: model.elements ? model.elements.length : 0,
+      textures: this.getAllTextures(modelId),
+      hasDisplay: !!model.display,
+      ambientOcclusion: model.ambientocclusion
+    };
+  }
+
+  hasParent(modelId) {
+    const normalizedId = this.normalizeModelId(modelId);
+    if (this.baseModels[normalizedId] || this.baseModels[modelId]) {
+      return !!(this.baseModels[normalizedId]?.parent || this.baseModels[modelId]?.parent);
+    }
+    if (this.modelData && (this.modelData[normalizedId] || this.modelData[modelId])) {
+      return !!(this.modelData[normalizedId]?.parent || this.modelData[modelId]?.parent);
+    }
+    return false;
+  }
+
+  getParentId(modelId) {
+    const normalizedId = this.normalizeModelId(modelId);
+    if (this.baseModels[normalizedId]) {
+      return this.baseModels[normalizedId].parent || null;
+    }
+    if (this.baseModels[modelId]) {
+      return this.baseModels[modelId].parent || null;
+    }
+    if (this.modelData && this.modelData[normalizedId]) {
+      return this.modelData[normalizedId].parent || null;
+    }
+    if (this.modelData && this.modelData[modelId]) {
+      return this.modelData[modelId].parent || null;
+    }
+    return null;
+  }
+
+  createMeshFromModel(modelId, textureMap = {}) {
+    const model = this.getModel(modelId);
+    if (!model) {
+      console.warn(`[MCModelLoader] 无法创建网格，模型不存在: ${modelId}`);
+      return null;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+
+    let vertexOffset = 0;
+
+    for (const element of model.elements) {
+      const { from, to, faces } = element;
+      const [fx, fy, fz] = from;
+      const [tx, ty, tz] = to;
+
+      const faceOrder = ['north', 'south', 'east', 'west', 'up', 'down'];
+      const faceNormals = {
+        down: [0, -1, 0],
+        up: [0, 1, 0],
+        north: [0, 0, -1],
+        south: [0, 0, 1],
+        west: [-1, 0, 0],
+        east: [1, 0, 0]
+      };
+
+      const faceVertices = {
+        down: [
+          [tx, fy, fz], [fx, fy, fz], [fx, fy, tz], [tx, fy, tz]
+        ],
+        up: [
+          [fx, ty, fz], [tx, ty, fz], [tx, ty, tz], [fx, ty, tz]
+        ],
+        north: [
+          [tx, fy, fz], [tx, ty, fz], [fx, ty, fz], [fx, fy, fz]
+        ],
+        south: [
+          [fx, fy, tz], [fx, ty, tz], [tx, ty, tz], [tx, fy, tz]
+        ],
+        west: [
+          [fx, fy, fz], [fx, ty, fz], [fx, ty, tz], [fx, fy, tz]
+        ],
+        east: [
+          [tx, fy, tz], [tx, ty, tz], [tx, ty, fz], [tx, fy, fz]
+        ]
+      };
+
+      for (const faceName of faceOrder) {
+        const face = faces[faceName];
+        if (!face) continue;
+
+        const faceVerts = faceVertices[faceName];
+        const normal = faceNormals[faceName];
+        const uv = face.uv || [0, 0, 16, 16];
+
+        const textureRef = face.texture;
+        let material = null;
+
+        if (textureRef && textureMap[textureRef]) {
+          material = textureMap[textureRef];
+        } else if (model.textures && model.textures.all && textureMap[model.textures.all]) {
+          material = textureMap[model.textures.all];
+        }
+
+        for (const [vx, vy, vz] of faceVerts) {
+          vertices.push(vx - 8, vy, vz - 8);
+          normals.push(...normal);
+
+          if (uv && Array.isArray(uv) && uv.length === 4) {
+            let u1, v1, u2, v2;
+            if (faceName === 'down' || faceName === 'up') {
+              u1 = uv[0] / 16;
+              v1 = 1 - uv[3] / 16;
+              u2 = uv[2] / 16;
+              v2 = 1 - uv[1] / 16;
+            } else if (faceName === 'north' || faceName === 'south') {
+              u1 = uv[0] / 16;
+              v1 = 1 - uv[3] / 16;
+              u2 = uv[2] / 16;
+              v2 = 1 - uv[1] / 16;
+            } else {
+              u1 = uv[0] / 16;
+              v1 = 1 - uv[3] / 16;
+              u2 = uv[2] / 16;
+              v2 = 1 - uv[1] / 16;
+            }
+            uvs.push(u1, v1, u2, v1, u2, v2, u1, v2);
+          } else {
+            uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+          }
+        }
+
+        const baseIndex = vertexOffset;
+        indices.push(
+          baseIndex, baseIndex + 1, baseIndex + 2,
+          baseIndex, baseIndex + 2, baseIndex + 3
+        );
+
+        vertexOffset += 4;
+      }
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+
+    return geometry;
+  }
+}
+
+class MCTextureLoader {
+  constructor() {
+    this.textureCache = new Map();
+    this.blockModelCache = new Map();
+  }
+
+  get modelData() {
+    return mcModelLoader.modelData;
+  }
+
+  load(block, variant = null) {
+    const blockName = this.extractBlockName(block);
+    const cacheKey = variant ? `${block}:${variant}` : block;
+
+    if (this.textureCache.has(cacheKey)) {
+      return this.textureCache.get(cacheKey);
+    }
+
+    const model = this.getModelForBlock(blockName);
+    if (!model) {
+      console.warn(`未找到方块 ${block} 的模型 (尝试的方块名称: ${blockName})`);
+      return null;
+    }
+
+    const texture = this.loadTextureFromModel(model, blockName, variant);
+    if (texture) {
+      this.textureCache.set(cacheKey, texture);
+    }
+
+    return texture;
+  }
+
+  extractBlockName(block) {
+    if (typeof block === 'string') {
+      return block.includes(':') ? block.split(':')[1] : block;
+    }
+    return block;
+  }
+
+  getModelForBlock(blockName) {
+    if (this.blockModelCache.has(blockName)) {
+      return this.blockModelCache.get(blockName);
+    }
+
+    const normalizedBlockName = this.normalizeBlockName(blockName);
+
+    if (!this.modelData || !this.modelData[normalizedBlockName]) {
+      console.warn(`[MCTextureLoader] 未找到方块 ${blockName}`);
+      return null;
+    }
+
+    const blockModel = this.modelData[normalizedBlockName];
+    const parentId = blockModel.parent;
+
+    if (!parentId) {
+      console.warn(`[MCTextureLoader] 方块 ${blockName} 没有父模型定义`);
+      return null;
+    }
+
+    const parentModel = mcModelLoader.getModel(parentId);
+    if (!parentModel) {
+      console.warn(`[MCTextureLoader] 无法加载父模型 ${parentId}`);
+      return null;
+    }
+
+    const mergedModel = {
+      ...parentModel,
+      id: `minecraft:block/${normalizedBlockName}`
+    };
+
+    if (blockModel.textures) {
+      mergedModel.textures = { ...parentModel.textures, ...blockModel.textures };
+    }
+
+    this.blockModelCache.set(blockName, mergedModel);
+    return mergedModel;
+  }
+
+  normalizeBlockName(blockName) {
+    if (blockName.startsWith('minecraft:')) {
+      return blockName.substring(10);
+    }
+    if (blockName.startsWith('block/')) {
+      return blockName.substring(6);
+    }
+    return blockName;
+  }
+
+  loadTextureFromModel(model, blockName, variant) {
+    if (!model || !model.textures) {
+      return null;
+    }
+
+    const textures = model.textures;
+    const textureRef = textures.all || textures.particle || textures.side || textures.texture || textures.down;
+
+    if (!textureRef) {
+      console.warn(`模型 ${blockName} 没有可用的纹理引用`);
+      return null;
+    }
+
+    let resolvedTextureRef = textureRef;
+    if (typeof textureRef === 'string' && textureRef.startsWith('#')) {
+      const varName = textureRef.substring(1);
+      if (textures[varName]) {
+        resolvedTextureRef = textures[varName];
+      }
+    }
+
+    const texturePath = this.resolveTexturePath(resolvedTextureRef);
+    if (!texturePath) {
+      return null;
+    }
+
+    return this.loadTexture(texturePath, blockName);
+  }
+
+  resolveTexturePath(textureRef) {
+    if (!textureRef || typeof textureRef !== 'string') {
+      return null;
+    }
+
+    if (textureRef.startsWith('#')) {
+      return null;
+    }
+
+    const parts = textureRef.split(':');
+    let namespace, path;
+
+    if (parts.length === 2) {
+      namespace = parts[0];
+      path = parts[1];
+    } else {
+      namespace = 'minecraft';
+      path = textureRef;
+    }
+
+    // 处理精灵图名称，确保格式正确
+    let spriteName = path;
+    if (!spriteName.endsWith('.png')) {
+      spriteName = `${spriteName}.png`;
+    }
+    // 移除 block/ 前缀，因为精灵图中没有这个前缀
+    spriteName = spriteName.replace(/^block\//, '');
+
+    return {
+      namespace,
+      path,
+      spriteName
+    };
+  }
+
+  loadTexture(texturePath, blockName) {
+    const spriteName = texturePath.spriteName;
+
+    if (mcSpriteAtlas.hasSprite(spriteName)) {
+      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
+      if (spriteTexture) {
+        console.log(`从精灵图加载纹理: ${spriteName} (方块: ${blockName})`);
+        return spriteTexture;
+      }
+    } else {
+      console.warn(`精灵图中未找到纹理: ${spriteName} (方块: ${blockName})`);
+    }
+
+    return null;
+  }
+
+  preloadTextures(blockList) {
+    const results = {};
+
+    for (const block of blockList) {
+      const texture = this.load(block);
+      results[block] = texture;
+    }
+
+    return results;
+  }
+
+  clearCache() {
+    this.textureCache.clear();
+    this.blockModelCache.clear();
+    console.log('[MCTextureLoader] 缓存已清除');
+  }
+
+  getCacheSize() {
+    return {
+      textures: this.textureCache.size,
+      models: this.blockModelCache.size
+    };
+  }
+}
+
+/*class MCBlockManager {
+  constructor() {
+    this.blockCache = new Map();
+    this.geometryCache = new Map();
+    this.materialCache = new Map();
+    this.isInitialized = false;
+    this.loadingPromises = new Map();
+  }
+
+  async initialize(modelJsonPath) {
+    if (this.isInitialized) {
+      console.log('[MCBlockManager] 已经初始化');
+      return;
+    }
+
+    try {
+      await mcModelLoader.loadModelData(modelJsonPath);
+      this.isInitialized = true;
+      console.log('[MCBlockManager] 初始化成功');
+    } catch (error) {
+      console.error('[MCBlockManager] 初始化失败:', error);
+      throw error;
+    }
+  }
+
+  async loadBlock(blockId, variant = null) {
+    const cacheKey = variant ? `${blockId}:${variant}` : blockId;
+
+    if (this.blockCache.has(cacheKey)) {
+      return this.blockCache.get(cacheKey);
+    }
+
+    if (this.loadingPromises.has(cacheKey)) {
+      return this.loadingPromises.get(cacheKey);
+    }
+
+    const loadPromise = this._loadBlockInternal(blockId, variant);
+    this.loadingPromises.set(cacheKey, loadPromise);
+
+    try {
+      const result = await loadPromise;
+      this.blockCache.set(cacheKey, result);
+      return result;
+    } finally {
+      this.loadingPromises.delete(cacheKey);
+    }
+  }
+
+  async _loadBlockInternal(blockId, variant = null) {
+    const blockName = this.extractBlockName(blockId);
+    const modelId = `minecraft:block/${blockName}`;
+
+    const model = mcModelLoader.getModel(modelId);
+    if (!model) {
+      console.warn(`[MCBlockManager] 未找到方块 ${blockId} 的模型`);
+      return null;
+    }
+
+    const textures = this.resolveTextures(model, blockName, variant);
+    if (!textures) {
+      console.warn(`[MCBlockManager] 未找到方块 ${blockId} 的纹理`);
+      return null;
+    }
+
+    const geometry = this.createGeometry(model);
+    const materials = this.createMaterials(model, textures);
+
+    return {
+      id: blockId,
+      variant,
+      model,
+      geometry,
+      materials,
+      textures
+    };
+  }
+
+  extractBlockName(blockId) {
+    if (typeof blockId === 'string') {
+      return blockId.includes(':') ? blockId.split(':')[1] : blockId;
+    }
+    return blockId;
+  }
+
+  resolveTextures(model, blockName, variant) {
+    if (!model || !model.textures) {
+      return null;
+    }
+
+    const resolvedTextures = {};
+    const textureMap = model.textures;
+
+    for (const [key, textureRef] of Object.entries(textureMap)) {
+      if (textureRef.startsWith('#')) {
+        const varName = textureRef.substring(1);
+        if (textureMap[varName]) {
+          resolvedTextures[key] = this.loadTextureFromRef(textureMap[varName], blockName);
+        }
+      } else {
+        resolvedTextures[key] = this.loadTextureFromRef(textureRef, blockName);
+      }
+    }
+
+    return resolvedTextures;
+  }
+
+  loadTextureFromRef(textureRef, blockName) {
+    const texturePath = mcModelLoader.getTexturePath(textureRef);
+    if (!texturePath) {
+      return null;
+    }
+
+    const spriteName = texturePath.split('/').pop().replace('.png', '');
+
+    if (mcSpriteAtlas.hasSprite(spriteName)) {
+      return mcSpriteAtlas.getSpriteTexture(spriteName);
+    }
+
+    console.warn(`[MCBlockManager] 未找到纹理: ${spriteName}`);
+    return null;
+  }
+
+  createGeometry(model) {
+    if (!model || !model.elements || model.elements.length === 0) {
+      return new THREE.BoxGeometry(1, 1, 1);
+    }
+
+    const cacheKey = JSON.stringify(model.elements);
+    if (this.geometryCache.has(cacheKey)) {
+      return this.geometryCache.get(cacheKey);
+    }
+
+    const geometries = [];
+
+    for (const element of model.elements) {
+      const { from, to } = element;
+      const width = (to[0] - from[0]) / 16;
+      const height = (to[1] - from[1]) / 16;
+      const depth = (to[2] - from[2]) / 16;
+
+      const geometry = new THREE.BoxGeometry(width, height, depth);
+      geometry.translate(
+        (from[0] + to[0]) / 32 - 0.5,
+        (from[1] + to[1]) / 32 - 0.5,
+        (from[2] + to[2]) / 32 - 0.5
+      );
+
+      geometries.push(geometry);
+    }
+
+    const mergedGeometry = geometries.length === 1 
+      ? geometries[0] 
+      : THREE.BufferGeometryUtils ? THREE.BufferGeometryUtils.mergeGeometries(geometries) : geometries[0];
+
+    this.geometryCache.set(cacheKey, mergedGeometry);
+    return mergedGeometry;
+  }
+
+  createMaterials(model, textures) {
+    if (!model || !model.elements || model.elements.length === 0) {
+      const texture = textures.all || textures.particle || textures.texture;
+      return [this.createMaterial(texture)];
+    }
+
+    const materials = [];
+    const faceOrder = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+
+    for (const faceName of faceOrder) {
+      let texture = null;
+      for (const element of model.elements) {
+        if (element.faces && element.faces[faceName]) {
+          const face = element.faces[faceName];
+          const textureRef = face.texture;
+          if (textureRef && textureRef.startsWith('#')) {
+            const varName = textureRef.substring(1);
+            texture = textures[varName];
+          } else {
+            texture = textures[textureRef];
+          }
+          break;
+        }
+      }
+
+      materials.push(this.createMaterial(texture));
+    }
+
+    return materials;
+  }
+
+  createMaterial(texture) {
+    if (!texture) {
+      return new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 1,
+        color: 0xff0000
+      });
+    }
+
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+
+    return new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 1,
+      color: 0xffffff
+    });
+  }
+
+  async createBlockMesh(blockId, x, y, z, variant = null) {
+    const blockData = await this.loadBlock(blockId, variant);
+    if (!blockData) {
+      console.warn(`[MCBlockManager] 无法创建方块 ${blockId} 的网格`);
+      return null;
+    }
+
+    const mesh = new THREE.Mesh(blockData.geometry, blockData.materials);
+    mesh.position.set(x, y, z);
+    mesh.name = blockId;
+    mesh.userData = {
+      blockId,
+      variant,
+      blockData
+    };
+
+    return mesh;
+  }
+
+  async preloadBlocks(blockIds) {
+    const promises = blockIds.map(blockId => this.loadBlock(blockId));
+    const results = await Promise.allSettled(promises);
+
+    const summary = {
+      total: blockIds.length,
+      success: 0,
+      failed: 0,
+      details: {}
+    };
+
+    blockIds.forEach((blockId, index) => {
+      const result = results[index];
+      if (result.status === 'fulfilled' && result.value) {
+        summary.success++;
+        summary.details[blockId] = { success: true };
+      } else {
+        summary.failed++;
+        summary.details[blockId] = { 
+          success: false, 
+          error: result.reason?.message || 'Unknown error' 
+        };
+      }
+    });
+
+    console.log(`[MCBlockManager] 预加载完成: ${summary.success}/${summary.total} 成功`);
+    return summary;
+  }
+
+  clearCache() {
+    this.blockCache.clear();
+    this.geometryCache.forEach(geometry => geometry.dispose());
+    this.geometryCache.clear();
+    this.materialCache.forEach(material => material.dispose());
+    this.materialCache.clear();
+    console.log('[MCBlockManager] 缓存已清除');
+  }
+
+  getCacheSize() {
+    return {
+      blocks: this.blockCache.size,
+      geometries: this.geometryCache.size,
+      materials: this.materialCache.size,
+      loading: this.loadingPromises.size
+    };
+  }
+
+  isBlockLoaded(blockId, variant = null) {
+    const cacheKey = variant ? `${blockId}:${variant}` : blockId;
+    return this.blockCache.has(cacheKey);
+  }
+
+  getBlockInfo(blockId, variant = null) {
+    const cacheKey = variant ? `${blockId}:${variant}` : blockId;
+    const blockData = this.blockCache.get(cacheKey);
+
+    if (!blockData) {
+      return null;
+    }
+
+    return {
+      id: blockData.id,
+      variant: blockData.variant,
+      hasModel: !!blockData.model,
+      elementCount: blockData.model?.elements?.length || 0,
+      textureCount: Object.keys(blockData.textures || {}).length,
+      textures: blockData.textures
+    };
+  }
+}*/
 
 // ========================================
 // LanguageManager 类 - 语言管理
@@ -568,100 +1565,27 @@ class LanguageManager {
 // 创建LanguageManager实例
 const languageManager = new LanguageManager();
 
-
-// 定义 MCTextureLoader 类
-const MCTextureLoader = {
-  load(block, variant = null){
-    // 检查 MCTextureMap 是否已定义且包含该方块
-    if(block in window.MCTextureMap) {
-      switch (window.MCTextureMap[block].type) {
-        case 6:
-          // 对于类型6，直接返回贴图
-          if (loadedTexture[block]) {
-            return loadedTexture[block];
-          } else {
-            console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-            return null;
-          }
-        case 'x':
-          // 对于类型'x'，直接返回贴图
-          if (loadedTexture[block]) {
-            return loadedTexture[block];
-          } else {
-            console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-            return null;
-          }
-        case 'd':
-          // 对于类型'd'，使用 d 方法处理
-          return MCTextureLoader.d(MCTextureMap[block].map, block);
-        default:
-          // 默认情况，尝试返回贴图
-          if (loadedTexture[block]) {
-            return loadedTexture[block];
-          } else {
-            console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-            return null;
-          }
-      }//switch
-    } else {
-      // 如果没有找到贴图，尝试从精灵图中获取
-      const blockName = block.split(':')[1]; // 取:后字段
-      const spriteName = `${blockName}.png`; // 精灵图中的文件名
-      
-      // 尝试从精灵图中获取纹理
-      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
-      
-      if (spriteTexture) {
-        // 缓存纹理以供后续使用
-        loadedTexture[block] = spriteTexture;
-        console.log(`从精灵图加载纹理: ${spriteName}`);
-        return spriteTexture;
-      } else {
-        console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-        return null;
-      }
-    }
-  },
-  
-  d(map, block) {
-    // 对于类型"d"，map是一个数组，需要特殊处理
-    // 这里假设数组的第一个元素是顶面贴图，第二个是侧面贴图
-    if (Array.isArray(map) && map.length >= 2) {
-      // 在实际实现中，可能需要创建一个组合贴图或者返回特定的贴图
-      // 目前我们返回第一个贴图作为示例
-      if (loadedTexture[block]) {
-        return loadedTexture[block];
-      } else {
-        console.warn(`未找到贴图 ${block}，当前已加载的贴图:`, Object.keys(loadedTexture));
-        return null;
-      }
-    }
-    // 如果不是预期的数组格式，直接返回
-    return map;
-  }
-}
+// ========================================
+// 资源加载与管理
+// ========================================
 
 // 预加载贴图
 function preloadBaseTextures() {
   const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
-  //通过读取sense.fragment获取需要预加载的方块
   const needBlock = [];
-  for (const scene of window.Process.scenes) {//遍历场景
-    if (!scene.fragment) continue;//如果场景没有fragment，跳过
-    
-    // 遍历场景中的所有片段
+
+  for (const scene of window.Process.scenes) {
+    if (!scene.fragment) continue;
+
     for (const fragment of scene.fragment) {
       if (!Array.isArray(fragment)) continue;
-      
-      // 遍历片段中的所有命令行
+
       for (const line of fragment) {
-        if (line.startsWith('//')) continue; // 跳过注释行
-        
-        // 检查是否包含方块函数并提取方块名称
+        if (line.startsWith('//')) continue;
+
         for (const func of blockFunction) {
           if (!line.includes(func)) continue;
-          
-          // 使用正则表达式提取方块名称
+
           const match = line.match(new RegExp(`${func}\\s*\\(\\s*'([^']+)'`));
           if (match?.[1] && !needBlock.includes(match[1])) {
             needBlock.push(match[1]);
@@ -671,34 +1595,27 @@ function preloadBaseTextures() {
     }
   }
 
-  console.log('###########已预加载贴图############');
+  console.log('###########开始预加载贴图############');
+  console.log(`需要预加载的方块数量: ${needBlock.length}`);
+
   for (const block of needBlock) {
-    if(!(block in window.MCTextureMap)) {//如果方块不在贴图映射中
-      console.warn(`方块 ${block} 不在贴图映射中`);
-      continue;
-    }
-    const blockName = block.split(':')[1];//取:后字段
-    // 尝试从精灵图中预加载纹理
-    const spriteName = `${blockName}.png`;
-    if (mcSpriteAtlas.hasSprite(spriteName)) {
-      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
-      if (spriteTexture) {
-        loadedTexture[block] = spriteTexture;
-        console.log(spriteName);
-      }
+    const texture = mcTextureLoader.load(block);
+    if (texture) {
+      console.log(`已加载纹理: ${block}`);
+    } else {
+      console.warn(`未能加载纹理: ${block}`);
     }
   }
-  console.log('###############End###############');
 
-  // 处理场景中需要的特殊贴图
-  for (let i = 0; i < window.Process.scenes.length; i++) {//遍历场景,根据base设置预加载贴图
+  console.log('###############预加载完成###############');
+
+  for (let i = 0; i < window.Process.scenes.length; i++) {
     const scene = window.Process.scenes[i];
-    // 检查场景是否有base属性
     if (!scene.base) {
       console.log(`[PreloadBaseTexture] 场景${i+1}/${window.Process.scenes.length}没有base属性，跳过预加载`);
-      continue; // 继续处理下一个场景
+      continue;
     }
-    
+
     switch (scene.base.default) {
       case 'create':
         createBase.preloadTexture(scene.base.create, i);
@@ -708,40 +1625,32 @@ function preloadBaseTextures() {
         break;
     }
   }
-  
-  // 标记纹理加载完成
+
   texturesLoaded = true;
   console.log('所有贴图预加载完成');
+  console.log(`纹理缓存大小: ${mcTextureLoader.getCacheSize().textures}`);
+  console.log(`模型缓存大小: ${mcTextureLoader.getCacheSize().models}`);
 };
 
-
-// ========================================
-// 资源加载与管理
-// ========================================
-
 // 主要逻辑初始化：加载资源
-(async () => {
-  //等待THREE.LoadingManager加载完成
+const vanilla = (async () => {
   const index = window.Process.loader.indexes;
   if (!index) return;
    
-  let [mtm, _] = await Promise.all([
-    loadFile(index, 'json', true, `<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">${index}</span>加载贴图映射文件`),
+  await Promise.all([
     loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
-    // 将精灵图加载也加入Promise.all中，实现异步同时加载
     mcSpriteAtlas.load(
       '/ponder/minecraft/textures/block/1.21.8.basic.atlas.json',
       '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
-      LoadingManager  // 传入LoadingManager以跟踪精灵图加载进度
-    )
+      LoadingManager
+    ),
+    mcModelLoader.loadModelData('/ponder/minecraft/models/block/1.21.8.model.json')
   ]);
-  window.MCTextureMap = mtm;
    
-  // 预加载语言数据
   languageManager.preloadAllLanguageData();
   
   preloadBaseTextures();
-})();
+});
 
 
 // 加载管理器事件处理
@@ -2232,248 +3141,13 @@ window.PonderUIManager.updateNavigationArrows();
 
 window.addEventListener('resize', window.PonderUIManager.renderPonderUI());
 
-// ========================================
-// MCModelLoader - Minecraft模型加载器
-// ========================================
-
-class MCModelLoader {
-  constructor() {
-    this.modelCache = new Map();
-    this.baseModels = {
-      'block/cube': {
-        elements: [
-          {
-            from: [0, 0, 0],
-            to: [16, 16, 16],
-            faces: {
-              down: { uv: [0, 16, 16, 0], texture: '#down', cullface: 'down' },
-              up: { uv: [0, 0, 16, 16], texture: '#up', cullface: 'up' },
-              north: { uv: [0, 0, 16, 16], texture: '#north', cullface: 'north' },
-              south: { uv: [0, 0, 16, 16], texture: '#south', cullface: 'south' },
-              west: { uv: [0, 0, 16, 16], texture: '#west', cullface: 'west' },
-              east: { uv: [0, 0, 16, 16], texture: '#east', cullface: 'east' }
-            }
-          }
-        ]
-      },
-      'block/block': {
-        elements: []
-      },
-      'block/cube_all': {
-        parent: 'block/cube',
-        textures: {
-          particle: '#all',
-          down: '#all',
-          up: '#all',
-          north: '#all',
-          east: '#all',
-          south: '#all',
-          west: '#all'
-        }
-      },
-      'block/cube_column': {
-        parent: 'block/cube',
-        textures: {
-          particle: '#side',
-          down: '#end',
-          up: '#end',
-          north: '#side',
-          east: '#side',
-          south: '#side',
-          west: '#side'
-        }
-      },
-      'block/cube_side': {
-        parent: 'block/cube',
-        textures: {
-          particle: '#side',
-          down: '#side',
-          up: '#side',
-          north: '#side',
-          east: '#side',
-          south: '#side',
-          west: '#side'
-        }
-      }
-    };
-    this.modelData = null;
-    this.isLoading = false;
-  }
-
-  async loadModelData(jsonPath) {
-    if (this.isLoading) {
-      console.warn('[MCModelLoader] 模型数据正在加载中，请稍候');
-      return;
-    }
-
-    try {
-      this.isLoading = true;
-      const response = await fetch(jsonPath);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      this.modelData = await response.json();
-      console.log(`[MCModelLoader] 模型数据加载成功: ${jsonPath}`);
-    } catch (error) {
-      console.error('[MCModelLoader] 模型数据加载失败:', error);
-      throw error;
-    } finally {
-      this.isLoading = false;
-    }
-  }
-
-  resolveModel(modelId, inheritanceChain = []) {
-    if (inheritanceChain.includes(modelId)) {
-      console.warn(`[MCModelLoader] 检测到循环继承: ${inheritanceChain.join(' -> ')} -> ${modelId}`);
-      return null;
-    }
-
-    if (this.modelCache.has(modelId)) {
-      return this.modelCache.get(modelId);
-    }
-
-    let modelData = null;
-
-    if (this.baseModels[modelId]) {
-      modelData = JSON.parse(JSON.stringify(this.baseModels[modelId]));
-    } else if (this.modelData && this.modelData[modelId]) {
-      modelData = JSON.parse(JSON.stringify(this.modelData[modelId]));
-    } else {
-      console.warn(`[MCModelLoader] 未找到模型: ${modelId}`);
-      return null;
-    }
-
-    if (modelData.parent) {
-      const parentId = modelData.parent;
-      const parentModel = this.resolveModel(parentId, [...inheritanceChain, modelId]);
-
-      if (parentModel) {
-        modelData = this.mergeModelData(parentModel, modelData);
-      } else {
-        console.warn(`[MCModelLoader] 父模型不存在: ${parentId}`);
-      }
-    }
-
-    this.modelCache.set(modelId, modelData);
-    return modelData;
-  }
-
-  mergeModelData(parent, child) {
-    const merged = JSON.parse(JSON.stringify(parent));
-
-    if (child.textures) {
-      merged.textures = { ...parent.textures, ...child.textures };
-    }
-
-    if (child.elements) {
-      merged.elements = child.elements;
-    }
-
-    if (child.display) {
-      merged.display = { ...parent.display, ...child.display };
-    }
-
-    if (child.ambientocclusion !== undefined) {
-      merged.ambientocclusion = child.ambientocclusion;
-    }
-
-    if (child.loader) {
-      merged.loader = child.loader;
-    }
-
-    return merged;
-  }
-
-  resolveTextures(modelData) {
-    if (!modelData || !modelData.textures) {
-      return {};
-    }
-
-    const resolvedTextures = {};
-    const textureMap = modelData.textures;
-    const visited = new Set();
-
-    const resolveTexture = (textureRef) => {
-      if (!textureRef.startsWith('#')) {
-        return textureRef;
-      }
-
-      const varName = textureRef.substring(1);
-
-      if (visited.has(varName)) {
-        console.warn(`[MCModelLoader] 检测到纹理变量循环引用: ${varName}`);
-        return null;
-      }
-
-      visited.add(varName);
-
-      if (textureMap[varName]) {
-        const result = resolveTexture(textureMap[varName]);
-        visited.delete(varName);
-        return result;
-      }
-
-      visited.delete(varName);
-      return null;
-    };
-
-    for (const [key, value] of Object.entries(textureMap)) {
-      resolvedTextures[key] = resolveTexture(value);
-    }
-
-    return resolvedTextures;
-  }
-
-  getModel(modelId) {
-    if (!this.modelData) {
-      console.warn('[MCModelLoader] 模型数据未加载，请先调用loadModelData');
-      return null;
-    }
-
-    const modelData = this.resolveModel(modelId);
-    if (!modelData) {
-      return null;
-    }
-
-    const resolvedTextures = this.resolveTextures(modelData);
-
-    return {
-      id: modelId,
-      elements: modelData.elements || [],
-      textures: resolvedTextures,
-      display: modelData.display,
-      ambientocclusion: modelData.ambientocclusion !== undefined ? modelData.ambientocclusion : true
-    };
-  }
-
-  getTexturePath(textureRef) {
-    if (!textureRef || typeof textureRef !== 'string') {
-      return null;
-    }
-
-    if (textureRef.startsWith('#')) {
-      return null;
-    }
-
-    if (textureRef.includes(':')) {
-      const [namespace, path] = textureRef.split(':');
-      return `assets/${namespace}/textures/${path}.png`;
-    }
-
-    return `assets/minecraft/textures/${textureRef}.png`;
-  }
-
-  clearCache() {
-    this.modelCache.clear();
-    console.log('[MCModelLoader] 模型缓存已清除');
-  }
-
-  dispose() {
-    this.clearCache();
-    this.modelData = null;
-    console.log('[MCModelLoader] 已释放资源');
-  }
-}
-
+// 全局精灵图管理器实例
+const mcSpriteAtlas = new MCSpriteAtlas();
+// 全局块管理器实例
+//const mcBlockManager = new MCBlockManager();
+// 全局纹理加载器实例
+const mcTextureLoader = new MCTextureLoader();
+// 全局模型加载器实例
 const mcModelLoader = new MCModelLoader();
-
+// 启动Ponder引擎
+window.onload = vanilla();
