@@ -1,0 +1,363 @@
+<style>
+    /* CSS变量定义 */
+    :root {
+        --button-size: 50px;
+        --button-padding: 2px;
+        --button-radius: 3px;
+        --icon-size: 16px;
+        --icon-scale: 2.5;
+        --icon-margin: -4px;
+        --transition-time: 0.05s;
+        --shortcut-font-size: 16px;
+
+        /* 颜色变量 */
+        --color-idle-dark: #2d3748;
+        --color-idle-light: #4a5568;
+        --color-hover-dark: #3d4758;
+        --color-hover-light: #5a6578;
+        --color-click-dark: #1d2738;
+        --color-click-light: #3a4558;
+        --color-disable-dark: #4a5568;
+        --color-disable-light: #718096;
+        --color-active-dark: #ff8a426f;
+        --color-active-light: #ff6b356f;
+        --color-shortcut: #a0aec0;
+        --color-tag-bg: rgba(0, 0, 0, 0.8);
+    }
+
+    /* 基础按钮样式 */
+    .ponder-button {
+        width: var(--button-size);
+        height: var(--button-size);
+        padding: var(--button-padding);
+        border-radius: var(--button-radius);
+        cursor: pointer;
+        transition: all var(--transition-time) ease-in-out;
+        font-family: 'Minecraft', Arial, sans-serif;
+        box-sizing: border-box;
+        border: 1px solid;
+    }
+
+    /* 布局容器 */
+    #ponder-create-main {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 400;
+    }
+
+    #ponder-control-buttons {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 15%;
+        pointer-events: none;
+    }
+
+    #ponder-control-buttons .ponder-button {
+        position: absolute;
+        pointer-events: auto;
+        background: none;
+    }
+    #ponder-control-buttons .ponder-button:hover {
+        background: rgba(0, 0, 0, 0.3);
+        border-color: var(--color-hover-light);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        transform: translateY(-1px);
+    }
+
+    #ponder-tag-buttons {
+        position: absolute;
+        top: 81px;
+        left: 31px;
+        pointer-events: none;
+    }
+
+    #ponder-tag-buttons .ponder-button {
+        pointer-events: auto;
+        margin-bottom: 10px;
+    }
+
+    .ponder-button.disable {
+        background: linear-gradient(to bottom, var(--color-disable-light), var(--color-disable-dark));
+        border-color: var(--color-disable-light);
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .ponder-button.active {
+        background: linear-gradient(to bottom, var(--color-active-light), var(--color-active-dark)) !important;
+        border-color: var(--color-active-light) !important;
+    }
+
+    .ponder-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+
+    /* 按钮内容 */
+    .ponder-button-content {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    /* 图标和游戏元素 */
+    .ponder-button-game-element,
+    .ponder-button-icon {
+        width: var(--icon-size);
+        height: var(--icon-size);
+        transform: scale(var(--icon-scale));
+        margin: var(--icon-margin);
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        image-rendering: pixelated;
+    }
+
+    /* 标签和提示 */
+    .ponder-button-shortcut {
+        position: absolute;
+        bottom: -6px;
+        right: 8px;
+        font-size: var(--shortcut-font-size);
+        color: var(--color-shortcut);
+        pointer-events: none;
+        z-index: 430;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+    }
+
+    .ponder-button-tag {
+        position: absolute;
+        top: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--color-tag-bg);
+        color: white;
+        padding: 4px 8px;
+        border-radius: var(--button-radius);
+        font-size: 11px;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+        pointer-events: none;
+        z-index: 500;
+    }
+
+    .ponder-button:hover .ponder-button-shortcut,
+    .ponder-button:hover .ponder-button-tag {
+        opacity: 1;
+    }
+
+    /* 动画效果 */
+    .ponder-button.flash {
+      background: linear-gradient(to bottom, rgba(255, 255, 255, 0.3), rgba(155, 155, 155, 0.3)) !important;
+      border-color: rgba(255, 255, 255, 0.3) !important;
+    }
+
+    .ponder-button.fade-in {
+        animation: ponderButtonFadeIn 0.3s ease-in-out forwards;
+    }
+
+    .ponder-button.fade-out {
+        animation: ponderButtonFadeOut 0.3s ease-in-out forwards;
+    }
+
+    @keyframes ponderButtonFadeIn {
+        from { opacity: 0; transform: scale(0.8); }
+        to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes ponderButtonFadeOut {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0; transform: scale(0.8); }
+    }
+    #ponder-create-progress-bar {
+      position: absolute;
+      bottom: 16%;
+      left: 25%;
+      width: 50%;
+      height: 10px;
+      background: none;
+      overflow: hidden;
+    }
+    #ponder-create-progress-fill {
+      height: 100%;
+      background-color: #fff;
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+      /* 提示文本框样式 */
+    .ponder-tip-progress {
+        position: absolute;
+        color: #FFFFFF;
+        background-color: rgba(0, 0, 0, 0.7);
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 14px;
+        font-family: 'Minecraft', Arial, sans-serif;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.5s ease-in-out;
+        z-index: 1000;
+        transform: translate(-50%, -50%);
+    }
+    
+    /* 进度条容器样式 */
+    .ponder-tip-progress-container {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 3px;
+        background-color: rgba(255, 255, 255, 0.2);
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+        overflow: hidden;
+    }
+    
+    /* 进度条样式 */
+    .ponder-tip-progress-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 0%;
+        height: 100%;
+        background-color: white;
+        transition: width ease-in-out;
+    }
+</style>
+<script>
+  //替换console.log到terminal, 并添加时间戳,同时显示在控制台
+  /*
+  const originalConsoleLog = console.log;
+  const originalConsoleWarn = console.warn;
+  const originalConsoleError = console.error;
+  console.log = function(...arg) {
+    originalConsoleLog.apply(console, arg);
+    terminal.innerHTML += `[${new Date().toLocaleTimeString()}] ${arg.map(item => item.toString()).join(' ')}<br>`;
+    //将terminal滚动条滚到最底下
+    terminal.scrollTop = terminal.scrollHeight;
+  };
+  console.warn = function(...arg) {
+    originalConsoleWarn.apply(console, arg);
+    terminal.innerHTML += `<span style="color: #FFA500;">[${new Date().toLocaleTimeString()}] ${arg.map(item => item.toString()).join(' ')}<br></span>`;
+    terminal.scrollTop = terminal.scrollHeight;
+  };
+  console.error = function(...arg) {
+    originalConsoleError.apply(console, arg);
+    terminal.innerHTML += `<span style="color: #FF0000;">[${new Date().toLocaleTimeString()}] ${arg.map(item => item.toString()).join(' ')}<br></span>`;
+    terminal.scrollTop = terminal.scrollHeight;
+  };
+  */
+  loadFile('/ponder/engine/domdkw/v1/vanilla.js', 'js', true,'加载engine:vanilla.js');
+  function loadTHREECSS2DRenderer() {
+    return new Promise(async (resolve, reject) => {
+      const {loadstate, loadinfo, rangeblock} = SNLB('CSS2DRenderer', true);
+      loadinfo.innerHTML = 'Loading the <span class="file-tag y">CSS2DRenderer</span> module...';
+      
+      try {
+        // Load the CSS2DRenderer module
+        const module = await import('three/addons/renderers/CSS2DRenderer.min.js');
+        window.CSS2DRenderer = module.CSS2DRenderer;
+        window.CSS2DObject = module.CSS2DObject;
+        
+        loadinfo.innerHTML = 'The <span class="file-tag y">CSS2DRenderer</span> module is loaded successfully!';
+        rangeblock.style.width = '100%';
+        loadstate.style.backgroundColor = '#fff6';
+          resolve(module);
+        }catch (e) {
+        loadinfo.textContent = 'Failed to load the CSS2DRenderer module!';
+        rangeblock.style.width = '0%';
+        console.error(e);
+        reject(e);
+      }
+    });
+  }
+</script>
+<div id="ponder-create-main" style="z-index: 400;">
+  <!-- 标签按钮 (左侧垂直排列) -->
+  <div id="ponder-create-title">
+    <!-- 标签按钮将通过JavaScript动态生成 -->
+  </div>
+  
+  <!-- 底部控制按钮 (水平排列) -->
+  <div id="ponder-control-buttons">
+    <!-- 探索按钮 -->
+    <button class="ponder-button" id="ponder-create-btn-explore" data-shortcut="Q">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-4.png');"></div>
+        <div class="ponder-button-shortcut">Q</div>
+        <div class="ponder-button-tag">探索</div>
+      </div>
+    </button>
+
+    <!-- 左箭头按钮 -->
+    <button class="ponder-button" id="ponder-create-btn-left" data-shortcut="A">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-1.png');"></div>
+        <div class="ponder-button-shortcut">A</div>
+        <div class="ponder-button-tag">上一页</div>
+      </div>
+    </button>
+    
+    <!-- 关闭按钮 -->
+    <button class="ponder-button" id="ponder-create-btn-close" data-shortcut="E">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-2.png');"></div>
+        <div class="ponder-button-shortcut">E</div>
+        <div class="ponder-button-tag">关闭</div>
+      </div>
+    </button>
+    
+    <!-- 右箭头按钮 -->
+    <button class="ponder-button" id="ponder-create-btn-right" data-shortcut="D">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-3.png');"></div>
+        <div class="ponder-button-shortcut">D</div>
+        <div class="ponder-button-tag">下一页</div>
+      </div>
+    </button>
+
+    <!-- 重播按钮 -->
+    <button class="ponder-button" id="ponder-create-btn-replay" data-shortcut="S">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-5.png');"></div>
+        <div class="ponder-button-shortcut">S</div>
+        <div class="ponder-button-tag">重播</div>
+      </div>
+    </button>
+    
+    <!-- 慢速模式按钮 (右侧) -->
+    <button class="ponder-button outer" id="ponder-create-btn-slow-mode">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-7.png');"></div>
+        <div class="ponder-button-tag">慢速模式</div>
+      </div>
+    </button>
+    
+    <!-- 用户模式按钮 (编辑模式下显示) -->
+    <button class="ponder-button" id="ponder-create-btn-developer-mode">
+      <div class="ponder-button-content">
+        <div class="ponder-button-game-element" style="background-image: url('/ponder/create/textures/gui/single/10-6.png');"></div>
+        <div class="ponder-button-tag">切换为开发者</div>
+      </div>
+    </button>
+  </div>
+  
+  <!-- 进度条 -->
+  <div id="ponder-create-progress-bar">
+    <div id="ponder-create-progress-fill"></div>
+  </div>
+</div>
