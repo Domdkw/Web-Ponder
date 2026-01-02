@@ -8,7 +8,7 @@
     },
     {
         "name":"dirt",
-        "icon":"/ponder/minecraft/item/block/dirt.png",
+        "icon":"/ponder/process/icons/dirt.png",
         "process":"/ponder/process/dirt.json"
     },
     {
@@ -17,6 +17,10 @@
         "process":"https://jsd.onmicrosoft.cn/gh/Creators-of-Create/Create@mc1.21.1%2Fdev/src/main/java/com/simibubi/create/infrastructure/ponder/scenes/RedstoneScenes.java",
         "description":"test",
         "boot":"/ponder/engine/domdkw/create/dev/neoforge.boot.html"
+    },
+    {
+        "name":"Tundra Arctic Fox",
+        "icon":"/ponder/process/icons/EntitySprite_fox.png",
+        "process":"/ponder/process/Tundra-Arctic-Fox.json"
     }
-
 ]

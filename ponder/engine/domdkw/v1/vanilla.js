@@ -905,306 +905,6 @@ class MCTextureLoader {
   }
 }
 
-/*class MCBlockManager {
-  constructor() {
-    this.blockCache = new Map();
-    this.geometryCache = new Map();
-    this.materialCache = new Map();
-    this.isInitialized = false;
-    this.loadingPromises = new Map();
-  }
-
-  async initialize(modelJsonPath) {
-    if (this.isInitialized) {
-      console.log('[MCBlockManager] 已经初始化');
-      return;
-    }
-
-    try {
-      await mcModelLoader.loadModelData(modelJsonPath);
-      this.isInitialized = true;
-      console.log('[MCBlockManager] 初始化成功');
-    } catch (error) {
-      console.error('[MCBlockManager] 初始化失败:', error);
-      throw error;
-    }
-  }
-
-  async loadBlock(blockId, variant = null) {
-    const cacheKey = variant ? `${blockId}:${variant}` : blockId;
-
-    if (this.blockCache.has(cacheKey)) {
-      return this.blockCache.get(cacheKey);
-    }
-
-    if (this.loadingPromises.has(cacheKey)) {
-      return this.loadingPromises.get(cacheKey);
-    }
-
-    const loadPromise = this._loadBlockInternal(blockId, variant);
-    this.loadingPromises.set(cacheKey, loadPromise);
-
-    try {
-      const result = await loadPromise;
-      this.blockCache.set(cacheKey, result);
-      return result;
-    } finally {
-      this.loadingPromises.delete(cacheKey);
-    }
-  }
-
-  async _loadBlockInternal(blockId, variant = null) {
-    const blockName = this.extractBlockName(blockId);
-    const modelId = `minecraft:block/${blockName}`;
-
-    const model = mcModelLoader.getModel(modelId);
-    if (!model) {
-      console.warn(`[MCBlockManager] 未找到方块 ${blockId} 的模型`);
-      return null;
-    }
-
-    const textures = this.resolveTextures(model, blockName, variant);
-    if (!textures) {
-      console.warn(`[MCBlockManager] 未找到方块 ${blockId} 的纹理`);
-      return null;
-    }
-
-    const geometry = this.createGeometry(model);
-    const materials = this.createMaterials(model, textures);
-
-    return {
-      id: blockId,
-      variant,
-      model,
-      geometry,
-      materials,
-      textures
-    };
-  }
-
-  extractBlockName(blockId) {
-    if (typeof blockId === 'string') {
-      return blockId.includes(':') ? blockId.split(':')[1] : blockId;
-    }
-    return blockId;
-  }
-
-  resolveTextures(model, blockName, variant) {
-    if (!model || !model.textures) {
-      return null;
-    }
-
-    const resolvedTextures = {};
-    const textureMap = model.textures;
-
-    for (const [key, textureRef] of Object.entries(textureMap)) {
-      if (textureRef.startsWith('#')) {
-        const varName = textureRef.substring(1);
-        if (textureMap[varName]) {
-          resolvedTextures[key] = this.loadTextureFromRef(textureMap[varName], blockName);
-        }
-      } else {
-        resolvedTextures[key] = this.loadTextureFromRef(textureRef, blockName);
-      }
-    }
-
-    return resolvedTextures;
-  }
-
-  loadTextureFromRef(textureRef, blockName) {
-    const texturePath = mcModelLoader.getTexturePath(textureRef);
-    if (!texturePath) {
-      return null;
-    }
-
-    const spriteName = texturePath.split('/').pop().replace('.png', '');
-
-    if (mcSpriteAtlas.hasSprite(spriteName)) {
-      return mcSpriteAtlas.getSpriteTexture(spriteName);
-    }
-
-    console.warn(`[MCBlockManager] 未找到纹理: ${spriteName}`);
-    return null;
-  }
-
-  createGeometry(model) {
-    if (!model || !model.elements || model.elements.length === 0) {
-      return new THREE.BoxGeometry(1, 1, 1);
-    }
-
-    const cacheKey = JSON.stringify(model.elements);
-    if (this.geometryCache.has(cacheKey)) {
-      return this.geometryCache.get(cacheKey);
-    }
-
-    const geometries = [];
-
-    for (const element of model.elements) {
-      const { from, to } = element;
-      const width = (to[0] - from[0]) / 16;
-      const height = (to[1] - from[1]) / 16;
-      const depth = (to[2] - from[2]) / 16;
-
-      const geometry = new THREE.BoxGeometry(width, height, depth);
-      geometry.translate(
-        (from[0] + to[0]) / 32 - 0.5,
-        (from[1] + to[1]) / 32 - 0.5,
-        (from[2] + to[2]) / 32 - 0.5
-      );
-
-      geometries.push(geometry);
-    }
-
-    const mergedGeometry = geometries.length === 1 
-      ? geometries[0] 
-      : THREE.BufferGeometryUtils ? THREE.BufferGeometryUtils.mergeGeometries(geometries) : geometries[0];
-
-    this.geometryCache.set(cacheKey, mergedGeometry);
-    return mergedGeometry;
-  }
-
-  createMaterials(model, textures) {
-    if (!model || !model.elements || model.elements.length === 0) {
-      const texture = textures.all || textures.particle || textures.texture;
-      return [this.createMaterial(texture)];
-    }
-
-    const materials = [];
-    const faceOrder = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-
-    for (const faceName of faceOrder) {
-      let texture = null;
-      for (const element of model.elements) {
-        if (element.faces && element.faces[faceName]) {
-          const face = element.faces[faceName];
-          const textureRef = face.texture;
-          if (textureRef && textureRef.startsWith('#')) {
-            const varName = textureRef.substring(1);
-            texture = textures[varName];
-          } else {
-            texture = textures[textureRef];
-          }
-          break;
-        }
-      }
-
-      materials.push(this.createMaterial(texture));
-    }
-
-    return materials;
-  }
-
-  createMaterial(texture) {
-    if (!texture) {
-      return new THREE.MeshBasicMaterial({
-        transparent: true,
-        opacity: 1,
-        color: 0xff0000
-      });
-    }
-
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-
-    return new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 1,
-      color: 0xffffff
-    });
-  }
-
-  async createBlockMesh(blockId, x, y, z, variant = null) {
-    const blockData = await this.loadBlock(blockId, variant);
-    if (!blockData) {
-      console.warn(`[MCBlockManager] 无法创建方块 ${blockId} 的网格`);
-      return null;
-    }
-
-    const mesh = new THREE.Mesh(blockData.geometry, blockData.materials);
-    mesh.position.set(x, y, z);
-    mesh.name = blockId;
-    mesh.userData = {
-      blockId,
-      variant,
-      blockData
-    };
-
-    return mesh;
-  }
-
-  async preloadBlocks(blockIds) {
-    const promises = blockIds.map(blockId => this.loadBlock(blockId));
-    const results = await Promise.allSettled(promises);
-
-    const summary = {
-      total: blockIds.length,
-      success: 0,
-      failed: 0,
-      details: {}
-    };
-
-    blockIds.forEach((blockId, index) => {
-      const result = results[index];
-      if (result.status === 'fulfilled' && result.value) {
-        summary.success++;
-        summary.details[blockId] = { success: true };
-      } else {
-        summary.failed++;
-        summary.details[blockId] = { 
-          success: false, 
-          error: result.reason?.message || 'Unknown error' 
-        };
-      }
-    });
-
-    console.log(`[MCBlockManager] 预加载完成: ${summary.success}/${summary.total} 成功`);
-    return summary;
-  }
-
-  clearCache() {
-    this.blockCache.clear();
-    this.geometryCache.forEach(geometry => geometry.dispose());
-    this.geometryCache.clear();
-    this.materialCache.forEach(material => material.dispose());
-    this.materialCache.clear();
-    console.log('[MCBlockManager] 缓存已清除');
-  }
-
-  getCacheSize() {
-    return {
-      blocks: this.blockCache.size,
-      geometries: this.geometryCache.size,
-      materials: this.materialCache.size,
-      loading: this.loadingPromises.size
-    };
-  }
-
-  isBlockLoaded(blockId, variant = null) {
-    const cacheKey = variant ? `${blockId}:${variant}` : blockId;
-    return this.blockCache.has(cacheKey);
-  }
-
-  getBlockInfo(blockId, variant = null) {
-    const cacheKey = variant ? `${blockId}:${variant}` : blockId;
-    const blockData = this.blockCache.get(cacheKey);
-
-    if (!blockData) {
-      return null;
-    }
-
-    return {
-      id: blockData.id,
-      variant: blockData.variant,
-      hasModel: !!blockData.model,
-      elementCount: blockData.model?.elements?.length || 0,
-      textureCount: Object.keys(blockData.textures || {}).length,
-      textures: blockData.textures
-    };
-  }
-}*/
-
 // ========================================
 // LanguageManager 类 - 语言管理
 // ========================================
@@ -1571,6 +1271,7 @@ const languageManager = new LanguageManager();
 
 // 预加载贴图
 function preloadBaseTextures() {
+  //动态检测需要预加载的方块
   const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
   const needBlock = [];
 
@@ -1607,7 +1308,7 @@ function preloadBaseTextures() {
     }
   }
 
-  console.log('###############预加载完成###############');
+  console.log('###############命令预加载完成###############');
 
   for (let i = 0; i < window.Process.scenes.length; i++) {
     const scene = window.Process.scenes[i];
@@ -1615,15 +1316,7 @@ function preloadBaseTextures() {
       console.log(`[PreloadBaseTexture] 场景${i+1}/${window.Process.scenes.length}没有base属性，跳过预加载`);
       continue;
     }
-
-    switch (scene.base.default) {
-      case 'create':
-        createBase.preloadTexture(scene.base.create, i);
-        break;
-      default:
-        console.warn(`未处理的base默认值: ${scene.base.default}`);
-        break;
-    }
+    Base.preloadTexture(i);
   }
 
   texturesLoaded = true;
@@ -1634,9 +1327,6 @@ function preloadBaseTextures() {
 
 // 主要逻辑初始化：加载资源
 const vanilla = (async () => {
-  const index = window.Process.loader.indexes;
-  if (!index) return;
-   
   await Promise.all([
     loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
     mcSpriteAtlas.load(
@@ -1672,7 +1362,7 @@ LoadingManager.onLoad = async () => {//主要加载步骤
     loadingDiv.style.opacity = '0';
     // 从window.Process.sense中获取默认场景索引
     const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-    createBase.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
+    Base.Create.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
     setTimeout(async () => {
       loadingDiv.style.display = 'none';
       if (texturesLoaded) {
@@ -1700,53 +1390,123 @@ LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
 // 场景创建与基础功能
 // ========================================
 
-// create基础场景
-class CreateBase{
-  preloadTexture(baseSetting, sceneNum){//预加载场景的所有贴图
-    switch (baseSetting.style) {
-      case '5x5chessboard':
-        // 尝试从精灵图中加载雪和粘土块
-        if (mcSpriteAtlas.hasSprite('snow.png')) {
-          loadedTexture['minecraft:snow_block'] = mcSpriteAtlas.getSpriteTexture('snow.png');
-        }
-        if (mcSpriteAtlas.hasSprite('clay.png')) {
-          loadedTexture['minecraft:clay'] = mcSpriteAtlas.getSpriteTexture('clay.png');
-        }
-        console.log(`[PBT=>CreateBase] 场景${sceneNum+1}/${window.Process.scenes.length} Create:5x5chessboard: snow.png, clay.png`);
+// BASE基础场景
+class BaseClass{
+  set(sceneNum){
+    const scene = window.Process.scenes[sceneNum];
+    if(!scene || !scene.base) return;
+    
+    switch (scene.base.default) {
+      case 'create':
+        this.Create.checkSet(sceneNum);
+        break;
+      case 'meadow':
+        this.meadow.set(scene.base.style);
         break;
       default:
-        console.warn(`[PBT=>CreateBase] 未处理的base样式: ${baseSetting.style}`);
+        console.warn(`未处理的base默认值: ${scene.base.default}`);
         break;
     }
   }
-  checkSet(sceneNum){//检查并创建CreateBase场景
-    if(!window.Process.scenes[sceneNum].base) return;
-    const baseSetting = window.Process.scenes[sceneNum].base.create;
-    if(!baseSetting) return;
-    //main -style
-    if(!baseSetting.style) return;
-    let cx = 0, cy = 0, cz = 0;
-    if(baseSetting.offset){
-      cx = baseSetting.offset.x;
-      cy = baseSetting.offset.y;
-      cz = baseSetting.offset.z;
-    }
-    switch(baseSetting.style){//根据style设置base
-      case '5x5chessboard':
-        const table = [[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],]
-        for (let i = 0; i < table.length; i++) {
-          const row = table[i];
-          for (let j = 0; j < row.length; j++) {
-            const cell = row[j];
-            if(cell === 1){setblock('minecraft:snow_block', i+cx-2, cy, j+cz-2);}
-            else{setblock('minecraft:clay', i+cx-2, cy, j+cz-2);}
-          }
-        }
+  preloadTexture(sceneNum){//预加载场景的所有贴图
+    const scene = window.Process.scenes[sceneNum];
+    if(!scene || !scene.base) return;
+    switch (scene.base.default) {
+      case 'create':
+        Base.Create.preloadTexture(window.Process.scenes[sceneNum].base.create, sceneNum);
         break;
+      case 'meadow':
+        Base.meadow.preloadTexture(window.Process.scenes[sceneNum].base.style);
+        break;
+      default:
+        console.warn(`未处理的base默认值: ${window.Process.scenes[sceneNum].base.default}`);
+        break;
+    }
+  }
+  
+  Create = {
+    preloadTexture:(baseSetting, sceneNum) =>{//预加载场景的所有贴图
+      switch (baseSetting.style) {
+        case '5x5chessboard':
+          // 尝试从精灵图中加载雪和粘土块
+          if (mcSpriteAtlas.hasSprite('snow.png')) {
+            loadedTexture['minecraft:snow_block'] = mcSpriteAtlas.getSpriteTexture('snow.png');
+          }
+          if (mcSpriteAtlas.hasSprite('clay.png')) {
+            loadedTexture['minecraft:clay'] = mcSpriteAtlas.getSpriteTexture('clay.png');
+          }
+          console.log(`[PBT=>Base.Create] 场景${sceneNum+1}/${window.Process.scenes.length} Create:5x5chessboard: snow.png, clay.png`);
+          break;
+        default:
+          console.warn(`[PBT=>Base.Create] 未处理的base样式: ${baseSetting.style}`);
+          break;
+      }
+    },
+    checkSet:(sceneNum) =>{//检查并创建CreateBase场景
+      if(!window.Process.scenes[sceneNum].base) return;
+      const baseSetting = window.Process.scenes[sceneNum].base.create;
+      if(!baseSetting) return;
+      //main -style
+      if(!baseSetting.style) return;
+      let cx = 0, cy = 0, cz = 0;
+      if(baseSetting.offset){
+        cx = baseSetting.offset.x;
+        cy = baseSetting.offset.y;
+        cz = baseSetting.offset.z;
+      }
+      switch(baseSetting.style){//根据style设置base
+        case '5x5chessboard':
+          const table = [[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],]
+          for (let i = 0; i < table.length; i++) {
+            const row = table[i];
+            for (let j = 0; j < row.length; j++) {
+              const cell = row[j];
+              if(cell === 1){setblock('minecraft:snow_block', i+cx-2, cy, j+cz-2);}
+              else{setblock('minecraft:clay', i+cx-2, cy, j+cz-2);}
+            }
+          }
+          break;
+      }
+    }
+  }
+  meadow = {
+    preloadTexture:(style) =>{
+      const {surface} = style;
+      
+      loadedTexture['minecraft:grass_block'] = mcSpriteAtlas.getSpriteTexture('grass_block_top.png');
+      
+      // 预加载泥土方块贴图
+      loadedTexture['minecraft:dirt'] = mcSpriteAtlas.getSpriteTexture('dirt.png');
+      
+      console.log(`[PBT=>Base.meadow] 预加载贴图: grass_block_top.png, dirt.png (surface=${surface})`);
+    },
+    set:(style) =>{
+      const {size={x:4,y:1,z:4}, offset={x:0,y:0,z:0}, 'grass_block-surface':surface=true} = style;
+      
+      // 收集所有方块放置的Promise
+      const promises = [];
+      
+      if(surface) {
+        // 如果surface为true，grass_block的y=1，dirt的y=size.y-1
+        if(size.y > 1) {
+          // 如果size.y大于1，创建泥土层
+          // 创建顶层草地方块
+          fill('minecraft:grass_block', offset.x, offset.y, offset.z, offset.x+size.x, offset.y, offset.z+size.z);
+          fill('minecraft:dirt', offset.x, offset.y-1, offset.z, offset.x+size.x, offset.y-1+size.y, offset.z+size.z);
+        }else if(size.y === 1){
+          fill('minecraft:grass_block', offset.x, offset.y, offset.z, offset.x+size.x, offset.y, offset.z+size.z);
+        }
+      } else {
+        // 如果surface为false，dirt的y=0
+        fill('minecraft:dirt', offset.x, offset.y, offset.z, offset.x+size.x, offset.y+size.y, offset.z+size.z);
+      }
+      
+      // 返回所有Promise的聚合，当所有方块放置完成时resolve
+      return Promise.all(promises);
     }
   }
 }
-const createBase = new CreateBase();
+const Base = new BaseClass();
 
 // ========================================
 // 工具函数与辅助方法
@@ -1969,6 +1729,9 @@ function initFragmentPlay(){//初始化每个场景的片段播放，每个场�
   // 解析当前场景的片段
   parseFragment(playState.currentScene);
   
+  // 初始化场景基础
+  Base.set(playState.currentScene);
+
   // 初始化播放状态
   playState.isPlaying = false;
   playState.isStopped = true;
@@ -2146,8 +1909,8 @@ function switchToScene(sceneNum) {
   // 解析新场景的片段
   parseFragment(sceneNum);
   
-  // 创建新场景的基础
-  createBase.checkSet(sceneNum);
+  //setbase
+  Base.set(sceneNum);
   
   // 重置进度条
   ProgressBar.reset();

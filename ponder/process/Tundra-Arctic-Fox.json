@@ -1,0 +1,50 @@
+{
+"title":{
+  "name":"Tundra Arctic Fox",
+  "icon":{
+    "size":"normal",
+    "tag":"minecraft:fox"
+  }
+},
+"loader":{
+  "boot":"/ponder/engine/domdkw/v1/nogltf.boot.html",
+  "import":[
+    "minecraft.block"
+  ]
+},
+"scenes":[
+  {
+    "description":"Design by 小涛mc from douyin",
+    "base":{
+      "default":"meadow",
+      "style":{
+        "size":{
+          "x":16,
+          "y":2,
+          "z":16
+        },
+        "offset":{
+          "x":0,
+          "y":-1,
+          "z":0
+        },
+        "grass_block-surface":true
+      }
+    },
+    "fragment":[
+      [
+        "camera.position.set(10, 16, -20)",
+        "camera.lookAt(8, 2, 8)"
+      ]
+    ]
+  }
+],
+"lang":{
+  "embed":{
+    "zh-CN":{
+    },
+    "en-US":{
+    }
+  }
+}
+}
