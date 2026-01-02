@@ -209,80 +209,120 @@ class MCSpriteAtlas {
  */
 class MCModelLoader {
   constructor() {
-    // 模型缓存，提高重复加载性能
+    /**
+     * 模型缓存，存储已解析的模型数据以提高重复加载性能
+     * 使用Map结构，键为模型ID，值为解析后的模型数据
+     */
     this.modelCache = new Map();
     
-    // 基础模型定义，提供常用的方块模型模板
+    /**
+     * 基础模型定义，提供常用的方块模型模板
+     * 这些是内置的基础模型，可以被其他模型继承和扩展
+     */
     this.baseModels = {
-      // 标准立方体模型，6个面分别对应不同纹理
+      /**
+       * 标准立方体模型，6个面分别对应不同纹理
+       * 每个面都有对应的UV坐标和纹理引用
+       */
       'block/cube': {
         elements: [
           {
-            from: [0, 0, 0],
-            to: [16, 16, 16],
+            from: [0, 0, 0],  // 立方体起始坐标
+            to: [16, 16, 16], // 立方体结束坐标
             faces: {
-              down: { uv: [0, 16, 16, 0], texture: '#down', cullface: 'down' },
-              up: { uv: [0, 0, 16, 16], texture: '#up', cullface: 'up' },
-              north: { uv: [0, 0, 16, 16], texture: '#north', cullface: 'north' },
-              south: { uv: [0, 0, 16, 16], texture: '#south', cullface: 'south' },
-              west: { uv: [0, 0, 16, 16], texture: '#west', cullface: 'west' },
-              east: { uv: [0, 0, 16, 16], texture: '#east', cullface: 'east' }
+              down: { uv: [0, 16, 16, 0], texture: '#down', cullface: 'down' },   // 底面
+              up: { uv: [0, 0, 16, 16], texture: '#up', cullface: 'up' },         // 顶面
+              north: { uv: [0, 0, 16, 16], texture: '#north', cullface: 'north' }, // 北面
+              south: { uv: [0, 0, 16, 16], texture: '#south', cullface: 'south' }, // 南面
+              west: { uv: [0, 0, 16, 16], texture: '#west', cullface: 'west' },    // 西面
+              east: { uv: [0, 0, 16, 16], texture: '#east', cullface: 'east' }     // 东面
             }
           }
         ]
       },
-      // 空模型，用于特殊方块
+      
+      /**
+       * 空模型，用于特殊方块（如空气方块）
+       * 没有elements，表示不渲染任何几何体
+       */
       'block/block': {
         elements: []
       },
-      // 所有面使用相同纹理的立方体
+      
+      /**
+       * 所有面使用相同纹理的立方体
+       * 继承自block/cube，所有面都使用同一个纹理
+       */
       'block/cube_all': {
         parent: 'block/cube',
         textures: {
-          particle: '#all',
-          down: '#all',
-          up: '#all',
-          north: '#all',
-          east: '#all',
-          south: '#all',
-          west: '#all'
+          particle: '#all',  // 粒子纹理
+          down: '#all',      // 底面纹理
+          up: '#all',        // 顶面纹理
+          north: '#all',     // 北面纹理
+          east: '#all',      // 东面纹理
+          south: '#all',     // 南面纹理
+          west: '#all'       // 西面纹理
         }
       },
-      // 柱状模型，侧面和端面使用不同纹理
+      
+      /**
+       * 柱状模型，侧面和端面使用不同纹理
+       * 继承自block/cube，侧面用side纹理，端面用end纹理
+       * 常用于树干、柱子等方块
+       */
       'block/cube_column': {
         parent: 'block/cube',
         textures: {
           particle: '#side',
-          down: '#end',
-          up: '#end',
-          north: '#side',
-          east: '#side',
-          south: '#side',
-          west: '#side'
+          down: '#end',      // 底面端面纹理
+          up: '#end',        // 顶面端面纹理
+          north: '#side',    // 侧面纹理
+          east: '#side',     // 侧面纹理
+          south: '#side',    // 侧面纹理
+          west: '#side'      // 侧面纹理
         }
       },
-      // 所有面使用侧面纹理的立方体
+      
+      /**
+       * 所有面使用侧面纹理的立方体
+       * 继承自block/cube，所有面都使用侧面纹理
+       */
       'block/cube_side': {
         parent: 'block/cube',
         textures: {
           particle: '#side',
-          down: '#side',
-          up: '#side',
-          north: '#side',
-          east: '#side',
-          south: '#side',
-          west: '#side'
+          down: '#side',     // 底面纹理
+          up: '#side',       // 顶面纹理
+          north: '#side',    // 北面纹理
+          east: '#side',     // 东面纹理
+          south: '#side',    // 南面纹理
+          west: '#side'      // 西面纹理
         }
       }
     };
     
-    // 外部加载的模型数据
+    /**
+     * 外部加载的模型数据
+     * 从JSON文件加载的模型数据存储在这里
+     */
     this.modelData = null;
-    // 加载状态标志
+    
+    /**
+     * 加载状态标志
+     * 用于防止重复加载同一数据
+     */
     this.isLoading = false;
   }
 
-async loadModelData(jsonPath) {
+/**
+   * 异步加载模型数据JSON文件
+   * @param {string} jsonPath - 模型数据JSON文件的路径
+   * @throws {Error} 当加载失败时抛出错误
+   * @returns {Promise<void>}
+   */
+  async loadModelData(jsonPath) {
+    // 检查是否正在加载中，避免重复加载
     if (this.isLoading) {
       console.warn('[MCModelLoader] 模型数据正在加载中，请稍候');
       return;
@@ -290,91 +330,147 @@ async loadModelData(jsonPath) {
 
     try {
       this.isLoading = true;
+      
+      // 使用fetch API获取JSON文件
       const response = await fetch(jsonPath);
+      
+      // 检查HTTP响应状态
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+      
+      // 解析JSON数据并存储
       this.modelData = await response.json();
       console.log(`[MCModelLoader] 模型数据加载成功: ${jsonPath}`);
+      
     } catch (error) {
+      // 记录错误信息并重新抛出
       console.error('[MCModelLoader] 模型数据加载失败:', error);
       throw error;
     } finally {
+      // 无论成功或失败都要重置加载状态
       this.isLoading = false;
     }
   }
 
+  /**
+   * 解析模型数据，支持模型继承和缓存
+   * @param {string} modelId - 模型ID
+   * @param {string[]} inheritanceChain - 继承链，用于检测循环继承
+   * @returns {Object|null} 解析后的模型数据，失败返回null
+   */
   resolveModel(modelId, inheritanceChain = []) {
+    
+    // 检查循环继承，避免无限递归
     if (inheritanceChain.includes(modelId)) {
       console.warn(`[MCModelLoader] 检测到循环继承: ${inheritanceChain.join(' -> ')} -> ${modelId}`);
       return null;
     }
 
+    // 检查缓存，如果已存在则直接返回
     if (this.modelCache.has(modelId)) {
       return this.modelCache.get(modelId);
     }
 
     let modelData = null;
+    
+    // 标准化模型ID，处理minecraft:前缀
     const normalizedId = this.normalizeModelId(modelId);
 
+    // 按优先级查找模型数据：基础模型 -> 外部模型 -> 未标准化ID
     if (this.baseModels[normalizedId]) {
+      // 优先查找标准化的基础模型
       modelData = JSON.parse(JSON.stringify(this.baseModels[normalizedId]));
     } else if (this.modelData && this.modelData[normalizedId]) {
+      // 优先查找标准化的外部模型
       modelData = JSON.parse(JSON.stringify(this.modelData[normalizedId]));
     } else if (this.baseModels[modelId]) {
+      // 回退到原始ID的基础模型
       modelData = JSON.parse(JSON.stringify(this.baseModels[modelId]));
     } else if (this.modelData && this.modelData[modelId]) {
+      // 回退到原始ID的外部模型
       modelData = JSON.parse(JSON.stringify(this.modelData[modelId]));
     } else {
+      // 未找到任何模型
       console.warn(`[MCModelLoader] 未找到模型: ${modelId}`);
       return null;
     }
 
+    // 处理模型继承
     if (modelData.parent) {
       const parentId = modelData.parent;
+      
+      // 递归解析父模型
       const parentModel = this.resolveModel(parentId, [...inheritanceChain, modelId]);
 
       if (parentModel) {
+        // 合并父模型和当前模型数据
         modelData = this.mergeModelData(parentModel, modelData);
       } else {
         console.warn(`[MCModelLoader] 父模型不存在: ${parentId}`);
       }
     }
 
+    // 将解析结果存入缓存
     this.modelCache.set(modelId, modelData);
     return modelData;
   }
 
+  /**
+   * 标准化模型ID，统一处理minecraft:前缀
+   * @param {string} modelId - 原始模型ID
+   * @returns {string} 标准化后的模型ID
+   */
   normalizeModelId(modelId) {
+    // 检查是否以minecraft:开头
     if (modelId.startsWith('minecraft:')) {
+      // 提取路径部分
       const path = modelId.substring(10);
+      
+      // 如果路径已以block/开头，直接返回路径
       if (path.startsWith('block/')) {
         return path;
       }
+      
+      // 否则添加block/前缀
       return `block/${path}`;
     }
+    
+    // 如果不是minecraft:前缀，直接返回原ID
     return modelId;
   }
 
+  /**
+   * 合并模型数据，子模型继承并覆盖父模型的属性
+   * @param {Object} parent - 父模型数据
+   * @param {Object} child - 子模型数据
+   * @returns {Object} 合并后的模型数据
+   */
   mergeModelData(parent, child) {
+    // 深度复制父模型数据
     const merged = JSON.parse(JSON.stringify(parent));
 
+    // 合并纹理定义，子模型的纹理会覆盖父模型的同名纹理
     if (child.textures) {
       merged.textures = { ...parent.textures, ...child.textures };
     }
 
+    // 替换几何元素，子模型的elements完全覆盖父模型的elements
     if (child.elements) {
       merged.elements = child.elements;
     }
 
+    // 合并显示设置
     if (child.display) {
       merged.display = { ...parent.display, ...child.display };
     }
 
+    // 处理环境光遮蔽设置
     if (child.ambientocclusion !== undefined) {
       merged.ambientocclusion = child.ambientocclusion;
     }
 
+    // 处理加载器设置
     if (child.loader) {
       merged.loader = child.loader;
     }
@@ -382,43 +478,64 @@ async loadModelData(jsonPath) {
     return merged;
   }
 
+  /**
+   * 解析模型纹理，处理纹理变量引用
+   * @param {Object} modelData - 模型数据
+   * @returns {Object} 解析后的纹理映射表
+   */
   resolveTextures(modelData) {
+    // 检查模型数据和纹理定义是否存在
     if (!modelData || !modelData.textures) {
       return {};
     }
 
     const resolvedTextures = {};
     const textureMap = modelData.textures;
+    
+    // 用于检测纹理变量循环引用的访问记录
     const visited = new Set();
 
+    /**
+     * 递归解析单个纹理引用
+     * @param {string} textureRef - 纹理引用（可能是变量或直接路径）
+     * @returns {string|null} 解析后的纹理路径，失败返回null
+     */
     const resolveTexture = (textureRef) => {
+      // 无效纹理引用直接返回
       if (!textureRef || typeof textureRef !== 'string') {
         return textureRef;
       }
 
+      // 如果不是变量引用（不以#开头），直接返回
       if (!textureRef.startsWith('#')) {
         return textureRef;
       }
 
+      // 提取变量名
       const varName = textureRef.substring(1);
 
+      // 检测循环引用
       if (visited.has(varName)) {
         console.warn(`[MCModelLoader] 检测到纹理变量循环引用: ${varName}`);
         return null;
       }
 
+      // 记录当前访问的变量
       visited.add(varName);
 
+      // 递归解析变量引用
       if (textureMap[varName]) {
         const result = resolveTexture(textureMap[varName]);
         visited.delete(varName);
         return result;
       }
 
+      // 清理访问记录
       visited.delete(varName);
       return null;
     };
 
+    // 解析所有纹理变量
     for (const [key, value] of Object.entries(textureMap)) {
       if (value) {
         resolvedTextures[key] = resolveTexture(value);
@@ -428,19 +545,28 @@ async loadModelData(jsonPath) {
     return resolvedTextures;
   }
 
+  /**
+   * 获取完整的模型数据，包括解析后的纹理
+   * @param {string} modelId - 模型ID
+   * @returns {Object|null} 完整的模型数据，失败返回null
+   */
   getModel(modelId) {
+    // 检查模型数据是否已加载
     if (!this.modelData) {
       console.warn('[MCModelLoader] 模型数据未加载，请先调用loadModelData');
       return null;
     }
 
+    // 解析模型数据
     const modelData = this.resolveModel(modelId);
     if (!modelData) {
       return null;
     }
 
+    // 解析纹理引用
     const resolvedTextures = this.resolveTextures(modelData);
 
+    // 返回完整的模型数据
     return {
       id: modelId,
       elements: modelData.elements || [],
@@ -450,33 +576,60 @@ async loadModelData(jsonPath) {
     };
   }
 
+  /**
+   * 清除模型缓存
+   * 强制重新加载所有模型时会用到
+   */
   clearCache() {
     this.modelCache.clear();
     console.log('[MCModelLoader] 模型缓存已清除');
   }
 
+  /**
+   * 释放所有资源
+   * 包括清除缓存和模型数据
+   */
   dispose() {
     this.clearCache();
     this.modelData = null;
     console.log('[MCModelLoader] 已释放资源');
   }
 
+  /**
+   * 检查指定ID的模型是否存在
+   * @param {string} modelId - 模型ID
+   * @returns {boolean} 模型是否存在
+   */
   hasModel(modelId) {
+    // 标准化模型ID
     const normalizedId = this.normalizeModelId(modelId);
+    
+    // 检查基础模型是否存在
     if (this.baseModels[normalizedId] || this.baseModels[modelId]) {
       return true;
     }
+    
+    // 检查外部模型数据是否存在
     if (this.modelData && (this.modelData[normalizedId] || this.modelData[modelId])) {
       return true;
     }
+    
     return false;
   }
 
+  /**
+   * 获取模型的继承链
+   * @param {string} modelId - 模型ID
+   * @returns {string[]} 继承链数组，从当前模型到最顶层父模型
+   */
   getModelInheritanceChain(modelId) {
     const chain = [];
     let currentId = modelId;
+    
+    // 用于检测循环继承的访问记录
     const visited = new Set();
 
+    // 沿着继承链向上遍历
     while (currentId && !visited.has(currentId)) {
       visited.add(currentId);
       chain.push(currentId);
@@ -484,6 +637,7 @@ async loadModelData(jsonPath) {
       let modelData = null;
       const normalizedId = this.normalizeModelId(currentId);
       
+      // 按优先级查找模型数据
       if (this.baseModels[normalizedId]) {
         modelData = this.baseModels[normalizedId];
       } else if (this.baseModels[currentId]) {
@@ -494,9 +648,11 @@ async loadModelData(jsonPath) {
         modelData = this.modelData[currentId];
       }
 
+      // 如果模型存在且有父模型，继续向上遍历
       if (modelData && modelData.parent) {
         currentId = modelData.parent;
       } else {
+        // 没有父模型，继承链结束
         break;
       }
     }
@@ -504,6 +660,11 @@ async loadModelData(jsonPath) {
     return chain;
   }
 
+  /**
+   * 获取模型使用的所有纹理列表
+   * @param {string} modelId - 模型ID
+   * @returns {string[]} 纹理路径数组
+   */
   getAllTextures(modelId) {
     const model = this.getModel(modelId);
     if (!model) {
@@ -513,9 +674,11 @@ async loadModelData(jsonPath) {
     const textures = new Set();
     const elements = model.elements || [];
 
+    // 从几何元素的面的纹理中提取纹理
     elements.forEach(element => {
       if (element.faces) {
         Object.values(element.faces).forEach(face => {
+          // 只收集直接纹理引用（不以#开头的）
           if (face.texture && typeof face.texture === 'string' && !face.texture.startsWith('#')) {
             textures.add(face.texture);
           }
@@ -523,7 +686,9 @@ async loadModelData(jsonPath) {
       }
     });
 
+    // 从模型纹理定义中提取纹理
     Object.values(model.textures || {}).forEach(textureRef => {
+      // 只收集直接纹理引用（不以#开头的）
       if (textureRef && typeof textureRef === 'string' && !textureRef.startsWith('#')) {
         textures.add(textureRef);
       }
@@ -532,9 +697,15 @@ async loadModelData(jsonPath) {
     return Array.from(textures);
   }
 
+  /**
+   * 预加载多个模型数据
+   * @param {string[]} modelIds - 模型ID数组
+   * @returns {Promise<Object>} 预加载结果，键为模型ID，值为成功/失败状态和模型数据
+   */
   async preloadModels(modelIds) {
     const results = {};
 
+    // 逐个加载模型
     for (const modelId of modelIds) {
       try {
         const model = this.getModel(modelId);
@@ -551,6 +722,11 @@ async loadModelData(jsonPath) {
     return results;
   }
 
+  /**
+   * 获取模型的详细信息
+   * @param {string} modelId - 模型ID
+   * @returns {Object|null} 模型详细信息，失败返回null
+   */
   getModelInfo(modelId) {
     const model = this.getModel(modelId);
     if (!model) {
@@ -569,64 +745,99 @@ async loadModelData(jsonPath) {
     };
   }
 
+  /**
+   * 检查模型是否有父模型
+   * @param {string} modelId - 模型ID
+   * @returns {boolean} 是否有父模型
+   */
   hasParent(modelId) {
+    // 标准化模型ID
     const normalizedId = this.normalizeModelId(modelId);
+    
+    // 检查基础模型是否有父模型
     if (this.baseModels[normalizedId] || this.baseModels[modelId]) {
       return !!(this.baseModels[normalizedId]?.parent || this.baseModels[modelId]?.parent);
     }
+    
+    // 检查外部模型数据是否有父模型
     if (this.modelData && (this.modelData[normalizedId] || this.modelData[modelId])) {
       return !!(this.modelData[normalizedId]?.parent || this.modelData[modelId]?.parent);
     }
+    
     return false;
   }
 
+  /**
+   * 获取模型的父模型ID
+   * @param {string} modelId - 模型ID
+   * @returns {string|null} 父模型ID，不存在返回null
+   */
   getParentId(modelId) {
+    // 标准化模型ID
     const normalizedId = this.normalizeModelId(modelId);
+    
+    // 按优先级查找基础模型的父模型
     if (this.baseModels[normalizedId]) {
       return this.baseModels[normalizedId].parent || null;
     }
     if (this.baseModels[modelId]) {
       return this.baseModels[modelId].parent || null;
     }
+    
+    // 按优先级查找外部模型的父模型
     if (this.modelData && this.modelData[normalizedId]) {
       return this.modelData[normalizedId].parent || null;
     }
     if (this.modelData && this.modelData[modelId]) {
       return this.modelData[modelId].parent || null;
     }
+    
     return null;
   }
 
+  /**
+   * 从模型数据创建THREE.js几何体网格
+   * @param {string} modelId - 模型ID
+   * @param {Object} textureMap - 纹理映射表，键为纹理路径，值为THREE.js材质
+   * @returns {THREE.BufferGeometry|null} 创建的几何体，失败返回null
+   */
   createMeshFromModel(modelId, textureMap = {}) {
+    // 获取模型数据
     const model = this.getModel(modelId);
     if (!model) {
       console.warn(`[MCModelLoader] 无法创建网格，模型不存在: ${modelId}`);
       return null;
     }
 
+    // 创建THREE.js几何体和属性数组
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
     const normals = [];
     const uvs = [];
     const indices = [];
 
-    let vertexOffset = 0;
+    let vertexOffset = 0; // 顶点偏移量，用于索引计算
 
+    // 遍历模型中的所有几何元素
     for (const element of model.elements) {
       const { from, to, faces } = element;
-      const [fx, fy, fz] = from;
-      const [tx, ty, tz] = to;
+      const [fx, fy, fz] = from; // 起始坐标
+      const [tx, ty, tz] = to;   // 结束坐标
 
+      // 定义面的渲染顺序（这会影响面剔除）
       const faceOrder = ['north', 'south', 'east', 'west', 'up', 'down'];
+      
+      // 定义每个面的法向量，用于光照计算
       const faceNormals = {
-        down: [0, -1, 0],
-        up: [0, 1, 0],
-        north: [0, 0, -1],
-        south: [0, 0, 1],
-        west: [-1, 0, 0],
-        east: [1, 0, 0]
+        down: [0, -1, 0],   // 底面法向量向下
+        up: [0, 1, 0],      // 顶面法向量向上
+        north: [0, 0, -1],  // 北面法向量向后
+        south: [0, 0, 1],   // 南面法向量向前
+        west: [-1, 0, 0],   // 西面法向量向左
+        east: [1, 0, 0]     // 东面法向量向右
       };
 
+      // 定义每个面的顶点坐标（以顺时针顺序定义，用于正确的面朝向）
       const faceVertices = {
         down: [
           [tx, fy, fz], [fx, fy, fz], [fx, fy, tz], [tx, fy, tz]
@@ -648,29 +859,38 @@ async loadModelData(jsonPath) {
         ]
       };
 
+      // 渲染每个面
       for (const faceName of faceOrder) {
         const face = faces[faceName];
-        if (!face) continue;
+        if (!face) continue; // 如果面不存在，跳过
 
         const faceVerts = faceVertices[faceName];
         const normal = faceNormals[faceName];
-        const uv = face.uv || [0, 0, 16, 16];
+        const uv = face.uv || [0, 0, 16, 16]; // UV坐标，默认值
 
         const textureRef = face.texture;
         let material = null;
 
+        // 查找对应的材质
         if (textureRef && textureMap[textureRef]) {
           material = textureMap[textureRef];
         } else if (model.textures && model.textures.all && textureMap[model.textures.all]) {
           material = textureMap[model.textures.all];
         }
 
+        // 处理面的四个顶点
         for (const [vx, vy, vz] of faceVerts) {
+          // 添加顶点坐标（偏移-8以居中到原点）
           vertices.push(vx - 8, vy, vz - 8);
+          
+          // 添加法向量
           normals.push(...normal);
 
+          // 计算UV坐标（将16x16的纹理坐标转换为0-1范围）
           if (uv && Array.isArray(uv) && uv.length === 4) {
             let u1, v1, u2, v2;
+            
+            // 根据面的方向计算UV坐标
             if (faceName === 'down' || faceName === 'up') {
               u1 = uv[0] / 16;
               v1 = 1 - uv[3] / 16;
@@ -687,22 +907,27 @@ async loadModelData(jsonPath) {
               u2 = uv[2] / 16;
               v2 = 1 - uv[1] / 16;
             }
+            
+            // 添加UV坐标（两个三角形，共6个顶点）
             uvs.push(u1, v1, u2, v1, u2, v2, u1, v2);
           } else {
+            // 默认UV坐标
             uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
           }
         }
 
+        // 添加面的索引（两个三角形组成一个四边形面）
         const baseIndex = vertexOffset;
         indices.push(
-          baseIndex, baseIndex + 1, baseIndex + 2,
-          baseIndex, baseIndex + 2, baseIndex + 3
+          baseIndex, baseIndex + 1, baseIndex + 2,    // 第一个三角形
+          baseIndex, baseIndex + 2, baseIndex + 3     // 第二个三角形
         );
 
-        vertexOffset += 4;
+        vertexOffset += 4; // 每个面增加4个顶点
       }
     }
 
+    // 设置几何体属性
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
