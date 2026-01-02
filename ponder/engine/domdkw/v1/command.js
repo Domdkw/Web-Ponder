@@ -423,6 +423,300 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
   });
 }
 
+// makegroup函数：创建方块组，支持并集操作
+function makegroup(x1, y1, z1, x2, y2, z2, groupname) {
+  // 确保坐标范围正确（从小到大）
+  const minX = Math.min(x1, x2);
+  const maxX = Math.max(x1, x2);
+  const minY = Math.min(y1, y2);
+  const maxY = Math.max(y1, y2);
+  const minZ = Math.min(z1, z2);
+  const maxZ = Math.max(z1, z2);
+  
+  // 检查全局组对象是否存在，不存在则创建
+  if (!window.blockGroups) {
+    window.blockGroups = {};
+  }
+  
+  // 如果组名不存在，创建新组
+  if (!window.blockGroups[groupname]) {
+    window.blockGroups[groupname] = {
+      blocks: [], // 存储方块位置信息
+      group: new THREE.Group() // THREE.js组对象
+    };
+    scene.add(window.blockGroups[groupname].group);
+  }
+  
+  const groupData = window.blockGroups[groupname];
+  
+  // 遍历指定区域内的所有方块
+  for(let x = minX; x <= maxX; x++){
+    for(let y = minY; y <= maxY; y++){
+      for(let z = minZ; z <= maxZ; z++){
+        // 查找该位置的方块
+        let blockToAdd = null;
+        for (let i = 0; i < scene.children.length; i++) {
+          const child = scene.children[i];
+          if (child.position.x === x && 
+              child.position.y === y && 
+              child.position.z === z && 
+              child.type === 'Mesh') {
+            blockToAdd = child;
+            break;
+          }
+        }
+        
+        // 如果找到方块，检查是否已经在组中
+        if (blockToAdd) {
+          const blockKey = `${x},${y},${z}`;
+          const isAlreadyInGroup = groupData.blocks.some(block => 
+            block.key === blockKey
+          );
+          
+          // 如果方块不在组中，添加到组
+          if (!isAlreadyInGroup) {
+            // 记录方块信息
+            groupData.blocks.push({
+              key: blockKey,
+              x: x,
+              y: y,
+              z: z,
+              block: blockToAdd
+            });
+            
+            // 将方块添加到THREE.js组中
+            groupData.group.add(blockToAdd);
+          }
+        }
+      }
+    }
+  }
+  
+  // 渲染场景
+  renderer.render(scene, camera);
+  
+  // 返回组中方块的数量
+  return groupData.blocks.length;
+}
+
+// getGroupSize函数：获取指定组中方块的数量
+function getgroupsize(groupname) {
+  if (!window.blockGroups || !window.blockGroups[groupname]) {
+    return 0;
+  }
+  return window.blockGroups[groupname].blocks.length;
+}
+
+// moveGroup函数：移动整个组
+function movegroup(groupname, targetX, targetY, targetZ, duration) {
+  if (!window.blockGroups || !window.blockGroups[groupname]) {
+    console.warn(`组 ${groupname} 不存在`);
+    return Promise.resolve();
+  }
+  
+  const groupData = window.blockGroups[groupname];
+  const group = groupData.group;
+  
+  // 计算当前组的中心点
+  const currentPos = new THREE.Vector3();
+  group.getWorldPosition(currentPos);
+  
+  return new Promise(resolve => {
+    let startTime = null;
+    let animationFrameId = null;
+    
+    function animate(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const elapsed = (timestamp - startTime) / 1000;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // 应用缓动函数
+      const easedProgress = transition.easeInOut(progress);
+      
+      // 计算新位置
+      const newX = currentPos.x + (targetX - currentPos.x) * easedProgress;
+      const newY = currentPos.y + (targetY - currentPos.y) * easedProgress;
+      const newZ = currentPos.z + (targetZ - currentPos.z) * easedProgress;
+      
+      // 更新组的位置
+      group.position.set(newX, newY, newZ);
+      
+      // 渲染场景
+      renderer.render(scene, camera);
+      
+      // 如果动画未完成，继续更新
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      } else {
+        // 动画完成时进行一次最终渲染
+        renderer.render(scene, camera);
+        resolve();
+      }
+    }
+    
+    // 开始动画
+    animationFrameId = requestAnimationFrame(animate);
+    
+    // 添加取消动画的方法
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  });
+}
+
+// rotateblock函数：旋转单个方块
+function rotateblock(x, y, z, rotateX, rotateY, rotateZ, duration) {
+  // 查找指定位置的方块
+  let blockToRotate = null;
+  for (let i = 0; i < scene.children.length; i++) {
+    const child = scene.children[i];
+    if (child.position.x === x && 
+        child.position.y === y && 
+        child.position.z === z && 
+        child.type === 'Mesh') {
+      blockToRotate = child;
+      break;
+    }
+  }
+  
+  if (!blockToRotate) {
+    console.warn(`在位置 (${x}, ${y}, ${z}) 未找到方块`);
+    return Promise.resolve();
+  }
+  
+  // 确保方块有rotation属性
+  if (!blockToRotate.rotation) {
+    blockToRotate.rotation = new THREE.Euler(0, 0, 0, 'XYZ');
+  }
+  
+  // 将角度转换为弧度
+  const startRotation = {
+    x: blockToRotate.rotation.x,
+    y: blockToRotate.rotation.y,
+    z: blockToRotate.rotation.z
+  };
+  
+  const targetRotation = {
+    x: THREE.MathUtils.degToRad(rotateX),
+    y: THREE.MathUtils.degToRad(rotateY),
+    z: THREE.MathUtils.degToRad(rotateZ)
+  };
+  
+  return new Promise(resolve => {
+    let startTime = null;
+    let animationFrameId = null;
+    
+    function animate(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const elapsed = (timestamp - startTime) / 1000;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // 应用缓动函数
+      const easedProgress = transition.easeInOut(progress);
+      
+      // 更新旋转角度
+      blockToRotate.rotation.x = startRotation.x + (targetRotation.x - startRotation.x) * easedProgress;
+      blockToRotate.rotation.y = startRotation.y + (targetRotation.y - startRotation.y) * easedProgress;
+      blockToRotate.rotation.z = startRotation.z + (targetRotation.z - startRotation.z) * easedProgress;
+      
+      // 渲染场景
+      renderer.render(scene, camera);
+      
+      // 如果动画未完成，继续更新
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      } else {
+        // 动画完成时进行一次最终渲染
+        renderer.render(scene, camera);
+        resolve();
+      }
+    }
+    
+    // 开始动画
+    animationFrameId = requestAnimationFrame(animate);
+    
+    // 添加取消动画的方法
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  });
+}
+
+// rotategroup函数：旋转整个方块组
+function rotategroup(groupname, rotateX, rotateY, rotateZ, duration) {
+  if (!window.blockGroups || !window.blockGroups[groupname]) {
+    console.warn(`组 ${groupname} 不存在`);
+    return Promise.resolve();
+  }
+  
+  const groupData = window.blockGroups[groupname];
+  const group = groupData.group;
+  
+  // 确保组有rotation属性
+  if (!group.rotation) {
+    group.rotation = new THREE.Euler(0, 0, 0, 'XYZ');
+  }
+  
+  // 将角度转换为弧度
+  const startRotation = {
+    x: group.rotation.x,
+    y: group.rotation.y,
+    z: group.rotation.z
+  };
+  
+  const targetRotation = {
+    x: THREE.MathUtils.degToRad(rotateX),
+    y: THREE.MathUtils.degToRad(rotateY),
+    z: THREE.MathUtils.degToRad(rotateZ)
+  };
+  
+  return new Promise(resolve => {
+    let startTime = null;
+    let animationFrameId = null;
+    
+    function animate(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const elapsed = (timestamp - startTime) / 1000;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // 应用缓动函数
+      const easedProgress = transition.linear(progress);
+      
+      // 更新旋转角度
+      group.rotation.x = startRotation.x + (targetRotation.x - startRotation.x) * easedProgress;
+      group.rotation.y = startRotation.y + (targetRotation.y - startRotation.y) * easedProgress;
+      group.rotation.z = startRotation.z + (targetRotation.z - startRotation.z) * easedProgress;
+      
+      // 渲染场景
+      renderer.render(scene, camera);
+      
+      // 如果动画未完成，继续更新
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      } else {
+        // 动画完成时进行一次最终渲染
+        renderer.render(scene, camera);
+        resolve();
+      }
+    }
+    
+    // 开始动画
+    animationFrameId = requestAnimationFrame(animate);
+    
+    // 添加取消动画的方法
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  });
+}
+
+
 // tip函数：在指定位置显示提示信息
 async function tip(x, y, z, text, color, duration) {
   // 应用语言映射

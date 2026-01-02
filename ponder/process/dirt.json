@@ -68,20 +68,22 @@
         "fillfall('minecraft:coal_ore',-1,0,-1,1,0,1,2)",
         "idle(2)",
         "tiparea(-1,0,-1,1,0,1,'s2f1c1','yellow',5)",
-        "idle(5)",
-        "moveBlock(-1,0,-1,-1,3,-1,3)",
         "idle(3)",
+        "moveBlock(-1,0,-1,-1,3,-1,3)",
+        "idle(4)",
+        "rotateblock(-1,3,-1,0,90,0,1)",
+        "idle(1)",
         "tip(-1,3,-1,'s2f1c2','yellowgreen',7)",
         "idle(1)",
-        "setblockfall('minecraft:snow',0,1,0,1)",
+        "setblockfall('minecraft:snow_block',0,1,0,1)",
         "idle(1)",
         "moveCamera(true,-2,10,10,5)",
         "tip(0,1,0,'s2f1c3','blue',7)"
       ],
       [
-        "idle(7)",
+        "idle(2)",
         "removeareaup(-1,0,-1,1,0,1,1)",
-        "idle(7)",
+        "idle(2)",
         "tip(0,1,0,'s2f2c1','blue',7)"
       ]
     ]

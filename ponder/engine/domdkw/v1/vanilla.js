@@ -1707,7 +1707,7 @@ class CreateBase{
       case '5x5chessboard':
         // 尝试从精灵图中加载雪和粘土块
         if (mcSpriteAtlas.hasSprite('snow.png')) {
-          loadedTexture['minecraft:snow'] = mcSpriteAtlas.getSpriteTexture('snow.png');
+          loadedTexture['minecraft:snow_block'] = mcSpriteAtlas.getSpriteTexture('snow.png');
         }
         if (mcSpriteAtlas.hasSprite('clay.png')) {
           loadedTexture['minecraft:clay'] = mcSpriteAtlas.getSpriteTexture('clay.png');
@@ -1738,7 +1738,7 @@ class CreateBase{
           const row = table[i];
           for (let j = 0; j < row.length; j++) {
             const cell = row[j];
-            if(cell === 1){setblock('minecraft:snow', i+cx-2, cy, j+cz-2);}
+            if(cell === 1){setblock('minecraft:snow_block', i+cx-2, cy, j+cz-2);}
             else{setblock('minecraft:clay', i+cx-2, cy, j+cz-2);}
           }
         }
@@ -1762,6 +1762,9 @@ class transition{
   }
   static easeIn(t) {
     return t * t;
+  }
+  static linear(t) {
+    return t;
   }
 }
 
@@ -2124,8 +2127,6 @@ function switchToScene(sceneNum) {
       maxZ = Math.max(maxZ, child.position.z);
     }
   }
-  removearea(minX, minY, minZ, maxX, maxY, maxZ);
-  console.log('清理场景', sceneNum, '的区域');
 
   // 更新播放状态
   playState.currentScene = sceneNum;
@@ -2177,6 +2178,10 @@ function switchToScene(sceneNum) {
     pausedPromise = null;
   }
   
+  //promise完成后清理区域
+  removearea(minX, minY, minZ, maxX, maxY, maxZ);
+  console.log('清理场景', sceneNum, '的区域');
+
   // 立即播放新场景的第一个片段
   playFragment(playState.currentFragment);
 }
@@ -2612,11 +2617,6 @@ class IdentifyMode {
     }
   }
   
-  // 缓动函数 - ease-in-out
-  easeInOut(t) {
-    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-  }
-  
   startSmoothAnimation() {
     this.stopAnimation();
     this.isAnimating = true;
@@ -2629,7 +2629,7 @@ class IdentifyMode {
       
       const elapsed = Date.now() - this.animationStartTime;
       const progress = Math.min(elapsed / this.animationDuration, 1);
-      const easedProgress = this.easeInOut(progress);
+      const easedProgress = transition.easeInOut(progress);
       
       // 平滑插值位置
       this.currentPosition.lerpVectors(this.currentPosition, this.targetPosition, easedProgress);
@@ -2793,16 +2793,27 @@ class IdentifyMode {
   showBlockLabel(block) {
     if (!this.labelRenderer) return;
     
+    // 获取方块坐标
+    const x = Math.floor(block.position.x);
+    const y = Math.floor(block.position.y);
+    const z = Math.floor(block.position.z);
+    
     // 如果标签已存在，只更新内容
     if (this.blockLabel) {
-      this.blockLabel.element.textContent = block.name;
+      this.blockLabel.element.innerHTML = `
+        <div style="margin-bottom: 2px; font-size: 10px; color: #cccccc;">坐标: (${x}, ${y}, ${z})</div>
+        <div>${block.name}</div>
+      `;
       return;
     }
     
     // 创建标签元素
     const labelDiv = document.createElement('div');
     labelDiv.className = 'block-label';
-    labelDiv.textContent = block.name;
+    labelDiv.innerHTML = `
+      <div style="margin-bottom: 2px; font-size: 10px; color: #cccccc;">坐标: (${x}, ${y}, ${z})</div>
+      <div>${block.name}</div>
+    `;
     labelDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
     labelDiv.style.color = '#ffffff';
     labelDiv.style.padding = '4px 8px';
@@ -2812,6 +2823,7 @@ class IdentifyMode {
     labelDiv.style.pointerEvents = 'none';
     labelDiv.style.border = '1px solid rgba(255, 255, 0, 0.5)';
     labelDiv.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.3)';
+    labelDiv.style.textAlign = 'center';
     
     // 创建CSS2D对象
     this.blockLabel = new window.CSS2DObject(labelDiv);
