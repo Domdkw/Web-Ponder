@@ -377,7 +377,7 @@ class MCModelLoader {
     // 标准化模型ID，处理minecraft:前缀
     const normalizedId = this.normalizeModelId(modelId);
 
-    // 按优先级查找模型数据：基础模型 -> 外部模型 -> 未标准化ID
+    // 按优先级查找模型数据：基础模型 -> 外部模型
     if (this.baseModels[normalizedId]) {
       // 优先查找标准化的基础模型
       modelData = JSON.parse(JSON.stringify(this.baseModels[normalizedId]));
@@ -436,7 +436,12 @@ class MCModelLoader {
       return `block/${path}`;
     }
     
-    // 如果不是minecraft:前缀，直接返回原ID
+    // 如果不是minecraft:前缀，但也不包含block/，则添加block/前缀
+    if (!modelId.includes('/') && !modelId.startsWith('block/')) {
+      return `block/${modelId}`;
+    }
+    
+    // 其他情况直接返回原ID
     return modelId;
   }
 
@@ -796,6 +801,137 @@ class MCModelLoader {
   }
 
   /**
+   * 获取模型的所有面纹理
+   * @param {string} modelId - 模型ID
+   * @returns {Object|null} 包含6个面纹理的对象，失败返回null
+   */
+  getAllFaceTextures(modelId) {
+    // 获取模型数据
+    const model = this.getModel(modelId);
+    if (!model) {
+      console.warn(`[MCModelLoader] 无法获取模型: ${modelId}`);
+      return null;
+    }
+
+    console.log(`[MCModelLoader] 成功获取模型: ${modelId}`, model);
+
+    const faceTextures = {
+      down: null,
+      up: null,
+      north: null,
+      south: null,
+      west: null,
+      east: null
+    };
+
+    // 如果模型有元素，从元素中提取面纹理
+    if (model.elements && model.elements.length > 0) {
+      for (let i = 0; i < model.elements.length; i++) {
+        const element = model.elements[i];
+        if (element.faces) {
+          for (const [faceName, faceData] of Object.entries(element.faces)) {
+            if (faceData.texture) {
+              // 解析纹理引用
+              const textureRef = this.resolveTextureReference(faceData.texture, model.textures);
+              if (textureRef) {
+                // 如果是第一个元素，直接设置纹理
+                if (i === 0) {
+                  faceTextures[faceName] = textureRef;
+                } 
+                // 如果是第二个元素，检查是否需要处理overlay
+                else if (i === 1) {
+                  // 对于有overlay的情况，我们需要合并纹理
+                  if (faceTextures[faceName]) {
+                    // 检查是否已经有overlay
+                    if (typeof faceTextures[faceName] === 'object' && faceTextures[faceName].overlay) {
+                      // 已经有overlay，跳过
+                      continue;
+                    }
+                    
+                    // 创建包含基础纹理和overlay纹理的对象
+                    faceTextures[faceName] = {
+                      base: faceTextures[faceName],
+                      overlay: textureRef
+                    };
+                  } else {
+                    // 如果第一个元素没有设置这个面的纹理，直接设置
+                    faceTextures[faceName] = textureRef;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // 输出关键信息
+      console.log(`[MCModelLoader] ${modelId}: 底面=${faceTextures.down?.base || faceTextures.down}, 顶面=${faceTextures.up?.base || faceTextures.up}, 侧面=${faceTextures.north?.base || faceTextures.north || faceTextures.south || faceTextures.west || faceTextures.east}`);
+      if (faceTextures.north?.overlay || faceTextures.south?.overlay || faceTextures.west?.overlay || faceTextures.east?.overlay) {
+        console.log(`[MCModelLoader] ${modelId}: 侧面有overlay纹理`);
+      }
+    }
+
+    // 如果从元素中没有获取到某些面的纹理，尝试从模型纹理定义中获取
+    const textureMap = model.textures || {};
+    console.log(`[MCModelLoader] 模型纹理定义:`, textureMap);
+    
+    const faceTextureMap = {
+      down: ['down', 'bottom', 'side', 'all'],
+      up: ['up', 'top', 'side', 'all'],
+      north: ['north', 'front', 'side', 'all'],
+      south: ['south', 'back', 'side', 'all'],
+      west: ['west', 'left', 'side', 'all'],
+      east: ['east', 'right', 'side', 'all']
+    };
+
+    for (const [face, possibleTextureNames] of Object.entries(faceTextureMap)) {
+      if (!faceTextures[face]) {
+        for (const textureName of possibleTextureNames) {
+          if (textureMap[textureName]) {
+            const textureRef = this.resolveTextureReference(textureMap[textureName], textureMap);
+            if (textureRef) {
+              faceTextures[face] = textureRef;
+              console.log(`[MCModelLoader] 从纹理定义中为面 ${face} 设置纹理: ${textureName} -> ${textureRef}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`[MCModelLoader] 最终面纹理:`, faceTextures);
+    return faceTextures;
+  }
+
+  /**
+   * 解析纹理引用，处理变量引用
+   * @param {string} textureRef - 纹理引用
+   * @param {Object} textureMap - 纹理映射表
+   * @returns {string|null} 解析后的纹理路径
+   */
+  resolveTextureReference(textureRef, textureMap = {}) {
+    if (!textureRef || typeof textureRef !== 'string') {
+      return null;
+    }
+
+    // 如果不是变量引用，直接返回
+    if (!textureRef.startsWith('#')) {
+      return textureRef;
+    }
+
+    // 提取变量名
+    const varName = textureRef.substring(1);
+    
+    // 检查纹理映射表中是否有该变量
+    if (textureMap[varName]) {
+      // 递归解析，处理嵌套变量引用
+      return this.resolveTextureReference(textureMap[varName], textureMap);
+    }
+
+    return null;
+  }
+
+  /**
    * 从模型数据创建THREE.js几何体网格
    * @param {string} modelId - 模型ID
    * @param {Object} textureMap - 纹理映射表，键为纹理路径，值为THREE.js材质
@@ -947,18 +1083,94 @@ class MCTextureLoader {
     return mcModelLoader.modelData;
   }
 
-  load(block, variant = null) {
+  /**
+   * 加载方块的所有面纹理
+   * @param {string} block - 方块名称或ID
+   * @param {string} variant - 方块变体（可选）
+   * @returns {Object|null} 包含6个面纹理的对象，失败返回null
+   */
+  loadAllFaceTextures(block, variant = null) {
     const blockName = this.extractBlockName(block);
-    const cacheKey = variant ? `${block}:${variant}` : block;
+    const cacheKey = variant ? `${block}:${variant}:faces` : `${block}:faces`;
 
     if (this.textureCache.has(cacheKey)) {
       return this.textureCache.get(cacheKey);
     }
 
+    // 获取模型的所有面纹理引用
+    const faceTextureRefs = mcModelLoader.getAllFaceTextures(blockName);
+    if (!faceTextureRefs) {
+      console.warn(`[MCTextureLoader] 未找到方块 ${block} 的面纹理引用`);
+      return null;
+    }
+
+    const faceTextures = {
+      down: null,
+      up: null,
+      north: null,
+      south: null,
+      west: null,
+      east: null
+    };
+
+    // 为每个面加载纹理
+    for (const [face, textureRef] of Object.entries(faceTextureRefs)) {
+      if (textureRef) {
+        // 检查是否是overlay纹理对象
+        if (typeof textureRef === 'object' && textureRef.base && textureRef.overlay) {
+          // 处理overlay纹理
+          const basePath = this.resolveTexturePath(textureRef.base);
+          const overlayPath = this.resolveTexturePath(textureRef.overlay);
+          
+          if (basePath && overlayPath) {
+            const baseTexture = this.loadTexture(basePath, `${blockName}_${face}_base`);
+            const overlayTexture = this.loadTexture(overlayPath, `${blockName}_${face}_overlay`);
+            
+            // 创建一个包含基础纹理和overlay纹理的对象
+            faceTextures[face] = {
+              base: baseTexture,
+              overlay: overlayTexture
+            };
+          }
+        } else {
+          // 处理普通纹理
+          const texturePath = this.resolveTexturePath(textureRef);
+          if (texturePath) {
+            const texture = this.loadTexture(texturePath, `${blockName}_${face}`);
+            faceTextures[face] = texture;
+          }
+        }
+      }
+    }
+
+    // 输出关键信息
+    console.log(`[MCTextureLoader] ${blockName}: 底面=${faceTextures.down?.base || faceTextures.down}, 顶面=${faceTextures.up?.base || faceTextures.up}, 侧面=${faceTextures.north?.base || faceTextures.north || faceTextures.south || faceTextures.west || faceTextures.east}`);
+    if (faceTextures.north?.overlay || faceTextures.south?.overlay || faceTextures.west?.overlay || faceTextures.east?.overlay) {
+      console.log(`[MCTextureLoader] ${blockName}: 侧面有overlay纹理`);
+    }
+    
+    this.textureCache.set(cacheKey, faceTextures);
+    return faceTextures;
+  }
+
+  /**
+   * 加载方块纹理（保持向后兼容）
+   * @param {string} block - 方块名称或ID
+   * @param {string} variant - 方块变体（可选）
+   * @returns {Array} 包含纹理和额外信息的数组
+   */
+  load(block, variant = null) {
+    const blockName = this.extractBlockName(block);
+    const cacheKey = variant ? `${block}:${variant}` : block;
+
+    if (this.textureCache.has(cacheKey)) {
+      return [this.textureCache.get(cacheKey), null];
+    }
+
     const model = this.getModelForBlock(blockName);
     if (!model) {
       console.warn(`未找到方块 ${block} 的模型 (尝试的方块名称: ${blockName})`);
-      return null;
+      return [null, null];
     }
 
     const texture = this.loadTextureFromModel(model, blockName, variant);
@@ -966,7 +1178,104 @@ class MCTextureLoader {
       this.textureCache.set(cacheKey, texture);
     }
 
-    return texture;
+    return [texture, model];
+  }
+
+  /**
+   * 获取方块的所有面纹理，如果没有特定面纹理则使用默认纹理
+   * @param {string} block - 方块名称或ID
+   * @param {string} variant - 方块变体（可选）
+   * @returns {Array} 包含6个面纹理的数组
+   */
+  getFaceTextures(block, variant = null) {
+    console.log(`[MCTextureLoader] 获取方块 ${block} 的面纹理`);
+    
+    // 尝试加载所有面纹理
+    const faceTextures = this.loadAllFaceTextures(block, variant);
+    
+    if (faceTextures) {
+      // 如果成功加载所有面纹理，返回6个面的纹理
+      const result = [
+        faceTextures.down,
+        faceTextures.up,
+        faceTextures.north,
+        faceTextures.south,
+        faceTextures.west,
+        faceTextures.east
+      ];
+      
+      // 对于包含overlay纹理的面，只返回基础纹理
+      // 这样可以保持返回的数据结构一致性
+      const finalResult = result.map(texture => {
+        if (texture && typeof texture === 'object' && texture.base) {
+          console.log(`[MCTextureLoader] 提取面基础纹理，跳过overlay`);
+          return texture.base;
+        }
+        return texture;
+      });
+      
+      console.log(`[MCTextureLoader] 方块 ${block} 的最终面纹理数组:`, finalResult);
+      return finalResult;
+    } else {
+      // 如果无法加载所有面纹理，回退到单一纹理
+      console.log(`[MCTextureLoader] 无法加载所有面纹理，回退到单一纹理`);
+      const [texture] = this.load(block, variant);
+      if (texture) {
+        // 所有面使用相同纹理
+        const result = new Array(6).fill(texture);
+        console.log(`[MCTextureLoader] 方块 ${block} 使用单一纹理:`, texture);
+        return result;
+      }
+      
+      // 如果连单一纹理都加载失败，返回6个null
+      console.log(`[MCTextureLoader] 方块 ${block} 连单一纹理都加载失败`);
+      return new Array(6).fill(null);
+    }
+  }
+
+  /**
+   * 获取方块的所有面overlay纹理
+   * @param {string} block - 方块名称或ID
+   * @param {string} variant - 方块变体（可选）
+   * @returns {Array} 包含6个面overlay纹理的数组
+   */
+  getFaceOverlayTextures(block, variant = null) {
+    // 尝试加载所有面纹理
+    const faceTextures = this.loadAllFaceTextures(block, variant);
+    
+    if (faceTextures) {
+      // 如果成功加载所有面纹理，返回6个面的overlay纹理
+      const result = [
+        faceTextures.down,
+        faceTextures.up,
+        faceTextures.north,
+        faceTextures.south,
+        faceTextures.west,
+        faceTextures.east
+      ];
+      
+      // 只返回overlay纹理，如果没有overlay则返回null
+      return result.map(texture => {
+        if (texture && typeof texture === 'object' && texture.overlay) {
+          return texture.overlay;
+        }
+        return null;
+      });
+    }
+    
+    // 如果无法加载所有面纹理，返回6个null
+    return new Array(6).fill(null);
+  }
+
+  preloadTextures(blockList) {
+    const results = {};
+
+    for (const block of blockList) {
+      const texture = this.load(block);
+      results[block] = texture;
+    }
+
+    return results;
   }
 
   extractBlockName(block) {
@@ -981,14 +1290,14 @@ class MCTextureLoader {
       return this.blockModelCache.get(blockName);
     }
 
-    const normalizedBlockName = this.normalizeBlockName(blockName);
-
-    if (!this.modelData || !this.modelData[normalizedBlockName]) {
+    // 直接使用blockName，不需要额外的标准化
+    // 因为JSON文件中的键就是"grass_block"这样的名称
+    if (!this.modelData || !this.modelData[blockName]) {
       console.warn(`[MCTextureLoader] 未找到方块 ${blockName}`);
       return null;
     }
 
-    const blockModel = this.modelData[normalizedBlockName];
+    const blockModel = this.modelData[blockName];
     const parentId = blockModel.parent;
 
     if (!parentId) {
@@ -1002,13 +1311,22 @@ class MCTextureLoader {
       return null;
     }
 
+    // 创建合并后的模型
     const mergedModel = {
       ...parentModel,
-      id: `minecraft:block/${normalizedBlockName}`
+      id: `minecraft:block/${blockName}`
     };
 
+    // 合并纹理定义，子模型的纹理会覆盖父模型的同名纹理
     if (blockModel.textures) {
       mergedModel.textures = { ...parentModel.textures, ...blockModel.textures };
+    }
+
+    // 如果子模型有自己的元素，使用子模型的元素
+    // 这对于像grass_block这样有多个元素的模型很重要
+    if (blockModel.elements) {
+      mergedModel.elements = blockModel.elements;
+      console.log(`[MCTextureLoader] 使用子模型的元素:`, blockModel.elements.length);
     }
 
     this.blockModelCache.set(blockName, mergedModel);
@@ -3143,8 +3461,6 @@ window.addEventListener('resize', window.PonderUIManager.renderPonderUI());
 
 // 全局精灵图管理器实例
 const mcSpriteAtlas = new MCSpriteAtlas();
-// 全局块管理器实例
-//const mcBlockManager = new MCBlockManager();
 // 全局纹理加载器实例
 const mcTextureLoader = new MCTextureLoader();
 // 全局模型加载器实例

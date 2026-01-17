@@ -238,6 +238,7 @@
         transition: width ease-in-out;
     }
 </style>
+<script src="/ponder/engine/domdkw/v1/vanilla.js"></script>
 <script>
   //替换console.log到terminal, 并添加时间戳,同时显示在控制台
   /*
@@ -261,7 +262,6 @@
     terminal.scrollTop = terminal.scrollHeight;
   };
   */
-  loadFile('/ponder/engine/domdkw/v1/vanilla.js', 'js', true,'加载engine:vanilla.js');
   function loadTHREECSS2DRenderer() {
     return new Promise(async (resolve, reject) => {
       const {loadstate, loadinfo, rangeblock} = SNLB('CSS2DRenderer', true);
