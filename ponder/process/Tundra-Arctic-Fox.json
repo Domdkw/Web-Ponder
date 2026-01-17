@@ -35,7 +35,7 @@
       [
         "camera.position.set(7,7,7)//10, 16, -20",
         "camera.lookAt(0,0,0)//8, 2, 8",
-        "fill('minecraft:grass_block',3,0,0,3,0,0)"
+        "fill('minecraft:grass_block,snowy=false',3,0,0,3,0,0)"
       ]
     ]
   }

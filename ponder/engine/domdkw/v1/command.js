@@ -1,11 +1,12 @@
 // SCENE操作
-
+//region idle
 // idle 函数：等待指定秒数（优化版）
 function idle(duration) {
   // 使用更简洁的Promise语法，避免不必要的函数包装
   return new Promise(resolve => setTimeout(resolve, duration * 1000));
 }
 
+// region moveblock
 // 移动方块函数 - 处理位置变化（优化版）
 function moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) {
   // 使用更高效的查找方法，避免重复遍历
@@ -67,6 +68,7 @@ function moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) 
     };
   });
 }
+//region fadeblock
 // 渐变效果函数 - 处理透明度变化（优化版）
 function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
   // 使用更高效的查找方法
@@ -132,7 +134,26 @@ function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
   });
 }
 
-//setblock（优化版）
+//region parseblock
+// 解析方块字符串函数
+function parseBlockStr(blockStr) {
+  // 检查输入参数是否有效
+  if (!blockStr || typeof blockStr !== 'string') {
+    console.warn('[Command] 无效的方块字符串:', blockStr);
+    return { blockName: '', props: null };
+  }
+  
+  // 简单的解析逻辑，假设格式为 "minecraft:blockName,property=value|xxx=xxx"
+  const parts = blockStr.split(',');
+  const blockName = parts[0];
+  const props = parts[1]?.split('|') || null;
+  
+  return { blockName, props };
+}
+//endregion parseblock
+
+//region setblock
+// 设置方块函数（优化版）
 function setblock(block, x, y, z){
   // 检查目标位置是否已有方块，如果有则先移除
   removeblock(x, y, z);
@@ -181,7 +202,7 @@ function getReusableBoxGeometry() {
   }
   return reusableBoxGeometry;
 }
-//setblockfall 函数：放置方块并添加下落动画（优化版）
+//region setblockfall
 function setblockfall(block, x, y, z, duration) {
   // 检查目标位置是否已有方块，如果有则先移除
   removeblock(x, y, z);
@@ -222,8 +243,11 @@ function setblockfall(block, x, y, z, duration) {
     fadeBlock(x, y + 1, z, 0, 1, duration)
   ]);
 }
-//fill填充（优化版）
-function fill(block, x1, y1, z1, x2, y2, z2){
+//region fill
+function fill(blockStr, x1, y1, z1, x2, y2, z2){
+  // 解析方块字符串
+  const { blockName: block, props } = parseBlockStr(blockStr);
+
   // 确保坐标范围正确（从小到大）
   const minX = Math.min(x1, x2);
   const maxX = Math.max(x1, x2);
@@ -236,7 +260,7 @@ function fill(block, x1, y1, z1, x2, y2, z2){
   let textures = [];
   
   // 使用多面纹理加载功能，传入方块名称，返回6个面的材质
-  textures = mcTextureLoader.getFaceTextures(block);
+  textures = mcTextureLoader.getFaceTextures(block, props);
   
   // 获取overlay纹理
   const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
@@ -351,7 +375,7 @@ function fill(block, x1, y1, z1, x2, y2, z2){
     renderer.render(scene, camera);
   });
 }
-//fillfall填充（优化版）
+//region fillfall
 function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
   // 确保坐标范围正确（从小到大）
   const minX = Math.min(x1, x2);
@@ -491,7 +515,7 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
   });
 }
 
-// makegroup函数：创建方块组，支持并集操作
+//region makegroup
 function makegroup(x1, y1, z1, x2, y2, z2, groupname) {
   // 确保坐标范围正确（从小到大）
   const minX = Math.min(x1, x2);
@@ -567,7 +591,7 @@ function makegroup(x1, y1, z1, x2, y2, z2, groupname) {
   return groupData.blocks.length;
 }
 
-// getGroupSize函数：获取指定组中方块的数量
+//region getgroupsize
 function getgroupsize(groupname) {
   if (!window.blockGroups || !window.blockGroups[groupname]) {
     return 0;
@@ -575,7 +599,7 @@ function getgroupsize(groupname) {
   return window.blockGroups[groupname].blocks.length;
 }
 
-// moveGroup函数：移动整个组
+//region movegroup
 function movegroup(groupname, targetX, targetY, targetZ, duration) {
   if (!window.blockGroups || !window.blockGroups[groupname]) {
     console.warn(`组 ${groupname} 不存在`);
@@ -634,7 +658,7 @@ function movegroup(groupname, targetX, targetY, targetZ, duration) {
   });
 }
 
-// rotateblock函数：旋转单个方块
+//region rotateblock
 function rotateblock(x, y, z, rotateX, rotateY, rotateZ, duration) {
   // 查找指定位置的方块
   let blockToRotate = null;
@@ -714,7 +738,7 @@ function rotateblock(x, y, z, rotateX, rotateY, rotateZ, duration) {
   });
 }
 
-// rotategroup函数：旋转整个方块组
+//region rotategroup
 function rotategroup(groupname, rotateX, rotateY, rotateZ, duration) {
   if (!window.blockGroups || !window.blockGroups[groupname]) {
     console.warn(`组 ${groupname} 不存在`);
@@ -785,6 +809,7 @@ function rotategroup(groupname, rotateX, rotateY, rotateZ, duration) {
 }
 
 
+//region tip
 // tip函数：在指定位置显示提示信息
 async function tip(x, y, z, text, color, duration) {
   // 应用语言映射
@@ -1035,6 +1060,7 @@ async function tip(x, y, z, text, color, duration) {
   }
 }
 
+//region tiparea
 // tiparea函数：在指定区域内显示提示信息
 async function tiparea(x1, y1, z1, x2, y2, z2, text, color, duration) {
   // 应用语言映射
@@ -1303,6 +1329,7 @@ async function tiparea(x1, y1, z1, x2, y2, z2, text, color, duration) {
   }
 }
 
+//region movecamera
 // 摄像机平滑移动函数
 function moveCamera(isAsync, x, y, z, duration) {
   // 获取当前摄像机位置
@@ -1347,6 +1374,7 @@ function moveCamera(isAsync, x, y, z, duration) {
   return isAsync ? undefined : promise;
 }
 
+//region removeblock
 // 移除方块
 function removeblock(x, y, z) {
   // 查找位于指定坐标的方块
@@ -1594,7 +1622,7 @@ function removeareaup(x1, y1, z1, x2, y2, z2, duration) {
     animationFrameId = requestAnimationFrame(animate);
   });
 }
-
+//region removeareaup
 // 重置场景函数，自动发现区域大小并清除所有方块
 function cleanscene(isAsync) {
   // 初始化最大和最小坐标
