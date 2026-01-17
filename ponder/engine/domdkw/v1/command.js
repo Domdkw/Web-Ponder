@@ -266,7 +266,7 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
   const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
   
   // 输出关键信息
-  console.log(`[Command] 创建方块 ${block}: 底面=${textures[0]}, 顶面=${textures[1]}, 北面=${textures[2]}, 南面=${textures[3]}, 西面=${textures[4]}, 东面=${textures[5]}`);
+  console.log(`[Command] 创建方块 ${block}: 底面=${textures[0] ? '已加载' : '未加载'}, 顶面=${textures[1] ? '已加载' : '未加载'}, 北面=${textures[2] ? '已加载' : '未加载'}, 南面=${textures[3] ? '已加载' : '未加载'}, 西面=${textures[4] ? '已加载' : '未加载'}, 东面=${textures[5] ? '已加载' : '未加载'}`);
   if (overlayTextures.some(t => t !== null)) {
     console.log(`[Command] 方块 ${block} 有overlay纹理`);
   }

@@ -393,11 +393,9 @@ class MCModelLoader {
     for (const id of possibleIds) {
       if (this.baseModels[id]) {
         modelData = JSON.parse(JSON.stringify(this.baseModels[id]));
-        console.log(`[MCModelLoader] 使用基础模型: ${id}`);
         break;
       } else if (this.modelData && this.modelData[id]) {
         modelData = JSON.parse(JSON.stringify(this.modelData[id]));
-        console.log(`[MCModelLoader] 使用外部模型: ${id}`);
         break;
       }
     }
@@ -821,11 +819,8 @@ class MCModelLoader {
     // 获取模型数据
     const model = this.getModel(modelId);
     if (!model) {
-      console.warn(`[MCModelLoader] 无法获取模型: ${modelId}`);
       return null;
     }
-
-    console.log(`[MCModelLoader] 成功获取模型: ${modelId}`, model);
 
     const faceTextures = {
       down: null,
@@ -1378,7 +1373,11 @@ class MCTextureLoader {
     }
 
     // 输出关键信息
-    console.log(`[MCTextureLoader] ${blockName}: 底面=${faceTextures.down?.base || faceTextures.down}, 顶面=${faceTextures.up?.base || faceTextures.up}, 侧面=${faceTextures.north?.base || faceTextures.north || faceTextures.south || faceTextures.west || faceTextures.east}`);
+    const downTexture = faceTextures.down?.base || faceTextures.down;
+    const upTexture = faceTextures.up?.base || faceTextures.up;
+    const sideTexture = faceTextures.north?.base || faceTextures.north || faceTextures.south || faceTextures.west || faceTextures.east;
+    
+    console.log(`[MCTextureLoader] ${blockName}: 底面=${downTexture ? '已加载' : '未加载'}, 顶面=${upTexture ? '已加载' : '未加载'}, 侧面=${sideTexture ? '已加载' : '未加载'}`);
     if (faceTextures.north?.overlay || faceTextures.south?.overlay || faceTextures.west?.overlay || faceTextures.east?.overlay) {
       console.log(`[MCTextureLoader] ${blockName}: 侧面有overlay纹理`);
     }
@@ -1440,8 +1439,6 @@ class MCTextureLoader {
    * @returns {Array} 包含6个面纹理的数组
    */
   getFaceTextures(block, variant = null) {
-    console.log(`[MCTextureLoader] 获取方块 ${block} 的面纹理`);
-    
     // 尝试加载所有面纹理
     const faceTextures = this.loadAllFaceTextures(block, variant);
     
@@ -1460,22 +1457,18 @@ class MCTextureLoader {
       // 这样可以保持返回的数据结构一致性
       const finalResult = result.map(texture => {
         if (texture && typeof texture === 'object' && texture.base) {
-          console.log(`[MCTextureLoader] 提取面基础纹理，跳过overlay`);
           return texture.base;
         }
         return texture;
       });
       
-      console.log(`[MCTextureLoader] 方块 ${block} 的最终面纹理数组:`, finalResult);
       return finalResult;
     } else {
       // 如果无法加载所有面纹理，回退到单一纹理
-      console.log(`[MCTextureLoader] 无法加载所有面纹理，回退到单一纹理`);
       const [texture] = this.load(block, variant);
       if (texture) {
         // 所有面使用相同纹理
         const result = new Array(6).fill(texture);
-        console.log(`[MCTextureLoader] 方块 ${block} 使用单一纹理:`, texture);
         return result;
       }
       
@@ -1587,7 +1580,6 @@ class MCTextureLoader {
     // 这对于像grass_block这样有多个元素的模型很重要
     if (blockModel.elements) {
       mergedModel.elements = blockModel.elements;
-      console.log(`[MCTextureLoader] 使用子模型的元素:`, blockModel.elements.length);
     }
 
     this.blockModelCache.set(normalizedModelId, mergedModel);
@@ -2166,22 +2158,25 @@ LoadingManager.onLoad = async () => {//主要加载步骤
 
   console.log('[LoadingManager] 所有资源加载完成');
   setTimeout(async () => {
-    loadingDiv.style.opacity = '0';
-    // 从window.Process.sense中获取默认场景索引
-    const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-    Base.Create.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
-    setTimeout(async () => {
-      loadingDiv.style.display = 'none';
-      if (texturesLoaded) {
-        // 初始化片段播放
-        initFragmentPlay();
-      } else {
-        console.warn('[LoadingManager] 纹理尚未加载完成，但继续初始化');
-        // 即使纹理未加载完成，也尝试初始化片段播放
-        initFragmentPlay();
-      }
+      loadingDiv.style.opacity = '0';
+      // 从window.Process.sense中获取默认场景索引
+      const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
+      Base.Create.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
+      setTimeout(async () => {
+        loadingDiv.style.display = 'none';
+        // 等待所有资源加载完成
+        if (mcModelLoader.modelData && mcBlockStateLoader.blockStatesData && texturesLoaded) {
+          // 初始化片段播放
+          initFragmentPlay();
+        } else {
+          console.warn('[LoadingManager] 资源尚未完全加载，但继续初始化');
+          // 等待一段时间后再尝试初始化
+          setTimeout(() => {
+            initFragmentPlay();
+          }, 2000);
+        }
+      }, 1000);
     }, 1000);
-  }, 1000);
 };
 
 LoadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
