@@ -1877,7 +1877,7 @@ const vanilla = (async () => {
       '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
       LoadingManager
     ),
-    mcModelLoader.loadModelData('/ponder/minecraft/models/block/1.21.8.model.json')
+    mcModelLoader.loadModelData('https://unpkg.com/minecraft-assets@1.17.0/minecraft-assets/data/1.21.8/blocks_models.json')
   ]);
    
   languageManager.preloadAllLanguageData();
