@@ -264,13 +264,7 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
   
   // 获取overlay纹理
   const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
-  
-  // 输出关键信息
-  console.log(`[Command] 创建方块 ${block}: 底面=${textures[0] ? '已加载' : '未加载'}, 顶面=${textures[1] ? '已加载' : '未加载'}, 北面=${textures[2] ? '已加载' : '未加载'}, 南面=${textures[3] ? '已加载' : '未加载'}, 西面=${textures[4] ? '已加载' : '未加载'}, 东面=${textures[5] ? '已加载' : '未加载'}`);
-  if (overlayTextures.some(t => t !== null)) {
-    console.log(`[Command] 方块 ${block} 有overlay纹理`);
-  }
-  
+
   // Three.js BoxGeometry的面顺序是：右、左、顶、底、前、后
   // 对应我们的纹理顺序：东、西、顶、底、北、南
   const threejsMaterials = [
@@ -309,7 +303,12 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
             materialOptions.color = new THREE.Color(0xff0000);
           }
           
-          return new THREE.MeshBasicMaterial(materialOptions);
+          return new THREE.MeshBasicMaterial({
+            ...materialOptions,
+            depthTest: true,
+            depthWrite: true,
+            side: THREE.FrontSide
+          });
         });
         
         // 重用几何体实例
@@ -342,15 +341,18 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
               return new THREE.MeshBasicMaterial({
                 map: overlayTexture,
                 transparent: true,
-                opacity: 1
+                opacity: 1,
+                depthTest: true,
+                depthWrite: false,
+                side: THREE.FrontSide
               });
             }
             return null;
           });
           
           // 创建overlay几何体，稍微大一点以避免z-fighting
-          const overlayGeometry = getReusableBoxGeometry();
-          overlayGeometry.scale(1.01, 1.01, 1.01);
+          // 使用新的几何体实例，避免影响共享几何体
+          const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
           
           const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
           overlayMesh.position.copy(blockObj.position);

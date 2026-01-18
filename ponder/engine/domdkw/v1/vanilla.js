@@ -871,16 +871,10 @@ class MCModelLoader {
         }
       }
       
-      // 输出关键信息
-      console.log(`[MCModelLoader] ${modelId}: 底面=${faceTextures.down?.base || faceTextures.down}, 顶面=${faceTextures.up?.base || faceTextures.up}, 侧面=${faceTextures.north?.base || faceTextures.north || faceTextures.south || faceTextures.west || faceTextures.east}`);
-      if (faceTextures.north?.overlay || faceTextures.south?.overlay || faceTextures.west?.overlay || faceTextures.east?.overlay) {
-        console.log(`[MCModelLoader] ${modelId}: 侧面有overlay纹理`);
-      }
     }
 
     // 如果从元素中没有获取到某些面的纹理，尝试从模型纹理定义中获取
     const textureMap = model.textures || {};
-    console.log(`[MCModelLoader] 模型纹理定义:`, textureMap);
     
     const faceTextureMap = {
       down: ['down', 'bottom', 'side', 'all'],
@@ -1175,6 +1169,9 @@ class MCBlockStateLoader {
         }
       }
     }
+    
+    // 调试信息
+    console.log(`[MCBlockStateLoader] 解析方块 ${blockName} 状态:`, states);
 
     const result = { blockName, states };
     this.cache.set(blockWithStates, result);
@@ -1211,6 +1208,10 @@ class MCBlockStateLoader {
     // 构建状态键
     const stateKey = this.buildStateKey(states);
     
+    // 调试信息
+    console.log(`[MCBlockStateLoader] 查找方块 ${blockName} 状态键: ${stateKey}`);
+    console.log(`[MCBlockStateLoader] 可用变体:`, Object.keys(variants));
+    
     // 查找匹配的变体
     let variant = variants[stateKey];
     
@@ -1218,6 +1219,32 @@ class MCBlockStateLoader {
     if (!variant && variants[""]) {
       variant = variants[""];
       console.log(`[MCBlockStateLoader] 使用方块 ${blockName} 的默认变体`);
+    }
+    
+    // 如果仍然没有找到，尝试部分匹配
+    if (!variant) {
+      const stateKeys = Object.keys(states);
+      for (const variantKey of Object.keys(variants)) {
+        if (variantKey === "") continue; // 跳过默认变体
+        
+        const variantStates = variantKey.split(',');
+        let partialMatch = true;
+        
+        // 检查是否所有状态都匹配
+        for (const state of variantStates) {
+          const [key, value] = state.split('=');
+          if (states[key] !== value) {
+            partialMatch = false;
+            break;
+          }
+        }
+        
+        if (partialMatch) {
+          variant = variants[variantKey];
+          console.log(`[MCBlockStateLoader] 找到部分匹配的变体: ${variantKey}`);
+          break;
+        }
+      }
     }
     
     // 如果仍然没有找到，返回null
@@ -1287,7 +1314,8 @@ class MCTextureLoader {
   constructor() {
     this.textureCache = new Map();
     this.blockModelCache = new Map();
-    this.blockStateLoader = new MCBlockStateLoader();
+    // 使用全局的mcBlockStateLoader实例，而不是创建新实例
+    this.blockStateLoader = new MCBlockStateLoader;
   }
 
   get modelData() {
@@ -1372,15 +1400,6 @@ class MCTextureLoader {
       }
     }
 
-    // 输出关键信息
-    const downTexture = faceTextures.down?.base || faceTextures.down;
-    const upTexture = faceTextures.up?.base || faceTextures.up;
-    const sideTexture = faceTextures.north?.base || faceTextures.north || faceTextures.south || faceTextures.west || faceTextures.east;
-    
-    console.log(`[MCTextureLoader] ${blockName}: 底面=${downTexture ? '已加载' : '未加载'}, 顶面=${upTexture ? '已加载' : '未加载'}, 侧面=${sideTexture ? '已加载' : '未加载'}`);
-    if (faceTextures.north?.overlay || faceTextures.south?.overlay || faceTextures.west?.overlay || faceTextures.east?.overlay) {
-      console.log(`[MCTextureLoader] ${blockName}: 侧面有overlay纹理`);
-    }
     
     this.textureCache.set(cacheKey, faceTextures);
     return faceTextures;
@@ -1666,7 +1685,6 @@ class MCTextureLoader {
     if (mcSpriteAtlas.hasSprite(spriteName)) {
       const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
       if (spriteTexture) {
-        console.log(`从精灵图加载纹理: ${spriteName} (方块: ${blockName})`);
         return spriteTexture;
       }
     } else {
