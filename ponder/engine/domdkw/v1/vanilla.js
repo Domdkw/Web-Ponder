@@ -811,12 +811,11 @@ class MCModelLoader {
   }
 
   /**
-   * 获取模型的所有面纹理
+   * 获取模型的所有面纹理（支持overlay纹理和tintindex着色）
    * @param {string} modelId - 模型ID
-   * @returns {Object|null} 包含6个面纹理的对象，失败返回null
+   * @returns {Object|null} 包含6个面纹理的对象，每个面可能是字符串或{base, overlay, tintindex}对象
    */
   getAllFaceTextures(modelId) {
-    // 获取模型数据
     const model = this.getModel(modelId);
     if (!model) {
       return null;
@@ -831,52 +830,42 @@ class MCModelLoader {
       east: null
     };
 
-    // 如果模型有元素，从元素中提取面纹理
+    const overlayData = {
+      down: null,
+      up: null,
+      north: null,
+      south: null,
+      west: null,
+      east: null
+    };
+
     if (model.elements && model.elements.length > 0) {
-      for (let i = 0; i < model.elements.length; i++) {
-        const element = model.elements[i];
-        if (element.faces) {
-          for (const [faceName, faceData] of Object.entries(element.faces)) {
+      const firstElement = model.elements[0];
+      if (firstElement.faces) {
+        for (const [faceName, faceData] of Object.entries(firstElement.faces)) {
+          if (faceData.texture) {
+            faceTextures[faceName] = this.resolveTextureReference(faceData.texture, model.textures);
+          }
+        }
+      }
+
+      if (model.elements.length > 1) {
+        const secondElement = model.elements[1];
+        if (secondElement.faces) {
+          for (const [faceName, faceData] of Object.entries(secondElement.faces)) {
             if (faceData.texture) {
-              // 解析纹理引用
-              const textureRef = this.resolveTextureReference(faceData.texture, model.textures);
-              if (textureRef) {
-                // 如果是第一个元素，直接设置纹理
-                if (i === 0) {
-                  faceTextures[faceName] = textureRef;
-                } 
-                // 如果是第二个元素，检查是否需要处理overlay
-                else if (i === 1) {
-                  // 对于有overlay的情况，我们需要合并纹理
-                  if (faceTextures[faceName]) {
-                    // 检查是否已经有overlay
-                    if (typeof faceTextures[faceName] === 'object' && faceTextures[faceName].overlay) {
-                      // 已经有overlay，跳过
-                      continue;
-                    }
-                    
-                    // 创建包含基础纹理和overlay纹理的对象
-                    faceTextures[faceName] = {
-                      base: faceTextures[faceName],
-                      overlay: textureRef
-                    };
-                  } else {
-                    // 如果第一个元素没有设置这个面的纹理，直接设置
-                    faceTextures[faceName] = textureRef;
-                  }
-                }
-              }
+              overlayData[faceName] = {
+                texture: this.resolveTextureReference(faceData.texture, model.textures),
+                tintindex: faceData.tintindex !== undefined ? faceData.tintindex : -1
+              };
             }
           }
         }
       }
-      
     }
 
-    // 如果从元素中没有获取到某些面的纹理，尝试从模型纹理定义中获取
     const textureMap = model.textures || {};
-    
-    const faceTextureMap = {
+    const faceFallbackMap = {
       down: ['down', 'bottom', 'side', 'all'],
       up: ['up', 'top', 'side', 'all'],
       north: ['north', 'front', 'side', 'all'],
@@ -885,23 +874,31 @@ class MCModelLoader {
       east: ['east', 'right', 'side', 'all']
     };
 
-    for (const [face, possibleTextureNames] of Object.entries(faceTextureMap)) {
+    for (const [face, fallbackNames] of Object.entries(faceFallbackMap)) {
       if (!faceTextures[face]) {
-        for (const textureName of possibleTextureNames) {
-          if (textureMap[textureName]) {
-            const textureRef = this.resolveTextureReference(textureMap[textureName], textureMap);
-            if (textureRef) {
-              faceTextures[face] = textureRef;
-              console.log(`[MCModelLoader] 从纹理定义中为面 ${face} 设置纹理: ${textureName} -> ${textureRef}`);
-              break;
-            }
+        for (const name of fallbackNames) {
+          if (textureMap[name]) {
+            faceTextures[face] = this.resolveTextureReference(textureMap[name], textureMap);
+            if (faceTextures[face]) break;
           }
         }
       }
     }
 
-    console.log(`[MCModelLoader] 最终面纹理:`, faceTextures);
-    return faceTextures;
+    const result = {};
+    for (const face of Object.keys(faceTextures)) {
+      if (overlayData[face] && overlayData[face].texture && faceTextures[face]) {
+        result[face] = {
+          base: faceTextures[face],
+          overlay: overlayData[face].texture,
+          tintindex: overlayData[face].tintindex
+        };
+      } else {
+        result[face] = faceTextures[face];
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -915,17 +912,12 @@ class MCModelLoader {
       return null;
     }
 
-    // 如果不是变量引用，直接返回
     if (!textureRef.startsWith('#')) {
       return textureRef;
     }
 
-    // 提取变量名
     const varName = textureRef.substring(1);
-    
-    // 检查纹理映射表中是否有该变量
     if (textureMap[varName]) {
-      // 递归解析，处理嵌套变量引用
       return this.resolveTextureReference(textureMap[varName], textureMap);
     }
 
@@ -1079,17 +1071,15 @@ class MCBlockStateLoader {
   constructor() {
     this.blockStatesData = null;
     this.isLoading = false;
-    this.cache = new Map(); // 缓存已解析的方块状态
+    this.cache = new Map();
   }
 
   /**
    * 异步加载方块状态数据JSON文件
    * @param {string} jsonPath - 方块状态数据JSON文件的路径
-   * @throws {Error} 当加载失败时抛出错误
    * @returns {Promise<void>}
    */
   async load(jsonPath) {
-    // 检查是否正在加载中，避免重复加载
     if (this.isLoading) {
       console.warn('[MCBlockStateLoader] 方块状态数据正在加载中，请稍候');
       return;
@@ -1097,170 +1087,143 @@ class MCBlockStateLoader {
 
     try {
       this.isLoading = true;
-      
-      // 使用fetch API获取JSON文件
       const response = await fetch(jsonPath);
-      
-      // 检查HTTP响应状态
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
-      // 解析JSON数据并存储
       this.blockStatesData = await response.json();
       console.log(`[MCBlockStateLoader] 方块状态数据加载成功: ${jsonPath}`);
-      
     } catch (error) {
-      // 记录错误信息并重新抛出
       console.error('[MCBlockStateLoader] 方块状态数据加载失败:', error);
       throw error;
     } finally {
-      // 无论成功或失败都要重置加载状态
       this.isLoading = false;
     }
   }
 
   /**
    * 解析方块名称和状态
-   * @param {string} blockWithStates - 包含状态的方块名称，格式如 "grass_block,snowy=true|age=3"
-   * @returns {Object} 包含方块名称和状态的对象
+   * @param {string} block - 包含状态的方块名称，格式如 "grass_block" 或 "grass_block,snowy=true"
+   * @returns {{blockName: string, states: Object}} 包含方块名称和状态的对象
    */
-  parseBlockStates(blockWithStates) {
-    // 检查输入参数是否有效
-    if (!blockWithStates || typeof blockWithStates !== 'string') {
-      console.warn('[MCBlockStateLoader] 无效的方块状态输入:', blockWithStates);
+  parseBlockStates(block) {
+    if (!block || typeof block !== 'string') {
       return { blockName: '', states: {} };
     }
 
-    // 检查缓存
-    if (this.cache.has(blockWithStates)) {
-      return this.cache.get(blockWithStates);
+    if (this.cache.has(block)) {
+      return this.cache.get(block);
     }
 
-    // 分割方块名称和状态
-    const parts = blockWithStates.split(',');
-    const blockName = parts[0];
-    
-    // 如果没有状态，直接返回
-    if (parts.length <= 1) {
-      const result = { blockName, states: {} };
-      this.cache.set(blockWithStates, result);
-      return result;
-    }
-
-    // 解析状态
+    const parts = block.split(',');
+    const blockName = this.normalizeBlockName(parts[0]);
     const states = {};
+
     for (let i = 1; i < parts.length; i++) {
       const statePart = parts[i];
-      
-      // 检查是否有多个状态用|分隔
       if (statePart.includes('|')) {
-        // 如果有|分隔符，只取第一个状态（简化处理）
         const firstState = statePart.split('|')[0];
         const [key, value] = firstState.split('=');
         if (key && value) {
           states[key.trim()] = value.trim();
         }
       } else {
-        // 单个状态
         const [key, value] = statePart.split('=');
         if (key && value) {
           states[key.trim()] = value.trim();
         }
       }
     }
-    
-    // 调试信息
-    console.log(`[MCBlockStateLoader] 解析方块 ${blockName} 状态:`, states);
 
     const result = { blockName, states };
-    this.cache.set(blockWithStates, result);
+    this.cache.set(block, result);
     return result;
   }
 
   /**
-   * 根据方块名称和状态获取对应的模型
+   * 标准化方块名称，移除minecraft:前缀
    * @param {string} blockName - 方块名称
+   * @returns {string} 标准化后的方块名称
+   */
+  normalizeBlockName(blockName) {
+    if (blockName.startsWith('minecraft:')) {
+      return blockName.substring(10);
+    }
+    return blockName;
+  }
+
+  /**
+   * 根据方块名称和状态获取对应的模型信息
+   * @param {string} blockName - 方块名称（不含minecraft:前缀）
    * @param {Object} states - 方块状态对象
-   * @returns {Object|null} 模型信息，包含model和可能的变换，失败返回null
+   * @returns {Object|null} 模型信息，包含model和可能的变换
    */
   getModelForStates(blockName, states = {}) {
     if (!this.blockStatesData) {
-      console.warn('[MCBlockStateLoader] 方块状态数据未加载，请先调用loadBlockStatesData');
+      console.warn('[MCBlockStateLoader] 方块状态数据未加载');
       return null;
     }
 
-    //去除minecraft:前缀
-    blockName = blockName.replace('minecraft:', '');
-
+    blockName = this.normalizeBlockName(blockName);
     const blockState = this.blockStatesData[blockName];
+    
     if (!blockState) {
-      console.warn(`[MCBlockStateLoader] 未找到方块 ${blockName} 的状态定义`);
       return null;
     }
 
     const variants = blockState.variants;
     if (!variants) {
-      console.warn(`[MCBlockStateLoader] 方块 ${blockName} 没有变体定义`);
       return null;
     }
 
-    // 构建状态键
     const stateKey = this.buildStateKey(states);
-    
-    // 调试信息
-    console.log(`[MCBlockStateLoader] 查找方块 ${blockName} 状态键: ${stateKey}`);
-    console.log(`[MCBlockStateLoader] 可用变体:`, Object.keys(variants));
-    
-    // 查找匹配的变体
     let variant = variants[stateKey];
     
-    // 如果没有找到精确匹配，尝试查找默认变体（空字符串）
     if (!variant && variants[""]) {
       variant = variants[""];
-      console.log(`[MCBlockStateLoader] 使用方块 ${blockName} 的默认变体`);
     }
     
-    // 如果仍然没有找到，尝试部分匹配
     if (!variant) {
-      const stateKeys = Object.keys(states);
-      for (const variantKey of Object.keys(variants)) {
-        if (variantKey === "") continue; // 跳过默认变体
-        
-        const variantStates = variantKey.split(',');
-        let partialMatch = true;
-        
-        // 检查是否所有状态都匹配
-        for (const state of variantStates) {
-          const [key, value] = state.split('=');
-          if (states[key] !== value) {
-            partialMatch = false;
-            break;
-          }
-        }
-        
-        if (partialMatch) {
-          variant = variants[variantKey];
-          console.log(`[MCBlockStateLoader] 找到部分匹配的变体: ${variantKey}`);
-          break;
-        }
-      }
+      variant = this.findPartialMatch(variants, states);
     }
     
-    // 如果仍然没有找到，返回null
     if (!variant) {
-      console.warn(`[MCBlockStateLoader] 方块 ${blockName} 没有匹配状态 ${stateKey} 的变体`);
       return null;
     }
 
-    // 处理变体数据
     if (Array.isArray(variant)) {
-      // 如果是数组，随机选择一个变体（或选择第一个）
-      // 在实际应用中，可能需要根据权重或其他条件选择
-      return variant[0];
+      return variant[Math.floor(Math.random() * variant.length)];
     }
     
     return variant;
+  }
+
+  /**
+   * 查找部分匹配的变体
+   * @param {Object} variants - 变体对象
+   * @param {Object} states - 方块状态对象
+   * @returns {Object|null} 匹配的变体
+   */
+  findPartialMatch(variants, states) {
+    for (const variantKey of Object.keys(variants)) {
+      if (variantKey === "") continue;
+      
+      const variantStates = variantKey.split(',');
+      let partialMatch = true;
+      
+      for (const state of variantStates) {
+        const [key, value] = state.split('=');
+        if (states[key] !== value) {
+          partialMatch = false;
+          break;
+        }
+      }
+      
+      if (partialMatch) {
+        return variants[variantKey];
+      }
+    }
+    return null;
   }
 
   /**
@@ -1269,26 +1232,7 @@ class MCBlockStateLoader {
    * @returns {string} 状态键
    */
   buildStateKey(states) {
-    const stateKeys = Object.keys(states).sort();
-    return stateKeys.map(key => `${key}=${states[key]}`).join(',');
-  }
-
-  /**
-   * 获取方块的所有可能状态
-   * @param {string} blockName - 方块名称
-   * @returns {Array} 所有可能状态的数组
-   */
-  getAllPossibleStates(blockName) {
-    if (!this.blockStatesData || !this.blockStatesData[blockName]) {
-      return [];
-    }
-
-    const variants = this.blockStatesData[blockName].variants;
-    if (!variants) {
-      return [];
-    }
-
-    return Object.keys(variants);
+    return Object.keys(states).sort().map(key => `${key}=${states[key]}`).join(',');
   }
 
   /**
@@ -1296,7 +1240,6 @@ class MCBlockStateLoader {
    */
   clearCache() {
     this.cache.clear();
-    console.log('[MCBlockStateLoader] 缓存已清除');
   }
 
   /**
@@ -1305,7 +1248,6 @@ class MCBlockStateLoader {
   dispose() {
     this.clearCache();
     this.blockStatesData = null;
-    console.log('[MCBlockStateLoader] 已释放资源');
   }
 }
 
@@ -1314,8 +1256,6 @@ class MCTextureLoader {
   constructor() {
     this.textureCache = new Map();
     this.blockModelCache = new Map();
-    // 使用全局的mcBlockStateLoader实例，而不是创建新实例
-    this.blockStateLoader = new MCBlockStateLoader;
   }
 
   get modelData() {
@@ -1323,44 +1263,105 @@ class MCTextureLoader {
   }
 
   /**
-   * 加载方块的所有面纹理（支持方块状态）
-   * @param {string} block - 方块名称或ID，可以包含状态，格式如 "grass_block,snowy=true"
-   * @param {string} variant - 方块变体
-   * @returns {Object|null} 包含6个面纹理的对象，失败返回null
+   * 加载单个纹理（向后兼容方法）
+   * @param {string} block - 方块名称
+   * @returns {THREE.Texture|null} 纹理对象
    */
-  loadAllFaceTextures(block, variant = null) {
-    // 解析方块名称和状态
-    const { blockName, states } = mcBlockStateLoader.parseBlockStates(block);
-    
-    // 如果有状态，尝试从方块状态获取模型
-    let modelId = null;
-    if (Object.keys(states).length > 0) {
-      const stateModel = mcBlockStateLoader.getModelForStates(blockName, states);
-      if (stateModel && stateModel.model) {
-        // 从状态模型中提取模型ID
-        modelId = stateModel.model;
-        console.log(`[MCTextureLoader] 从方块状态获取模型: ${blockName} -> ${modelId}`);
-      }
-    }
-    
-    // 如果没有从状态获取到模型ID，使用默认的方块名称
-    if (!modelId) {
-      modelId = blockName;
-    }
-    
-    const cacheKey = variant ? `${block}:${variant}:faces` : `${block}:faces`;
+  load(block) {
+    const textures = this.getFaceTextures(block);
+    return textures[0] || textures[1] || textures[2] || null;
+  }
 
+  /**
+   * 获取方块的6个面纹理（核心方法）
+   * @param {string} block - 方块名称，可包含状态，如 "grass_block" 或 "grass_block,snowy=true"
+   * @returns {Array} 6个面纹理的数组 [down, up, north, south, west, east]
+   */
+  getFaceTextures(block) {
+    const cacheKey = `faces:${block}`;
     if (this.textureCache.has(cacheKey)) {
       return this.textureCache.get(cacheKey);
     }
 
-    // 获取模型的所有面纹理引用
+    const modelId = this.resolveModelId(block);
     const faceTextureRefs = mcModelLoader.getAllFaceTextures(modelId);
+    
     if (!faceTextureRefs) {
-      console.warn(`[MCTextureLoader] 未找到方块 ${block} 的面纹理引用`);
-      return null;
+      return new Array(6).fill(null);
     }
 
+    const faceTextures = this.loadFaceTextures(faceTextureRefs, block);
+    const result = [
+      faceTextures.down,
+      faceTextures.up,
+      faceTextures.north,
+      faceTextures.south,
+      faceTextures.west,
+      faceTextures.east
+    ];
+
+    this.textureCache.set(cacheKey, result);
+    return result;
+  }
+
+  /**
+   * 获取方块的6个面overlay纹理
+   * @param {string} block - 方块名称，可包含状态
+   * @returns {Array} 6个面overlay数据的数组 [{texture, tintindex}, ...]
+   */
+  getFaceOverlayTextures(block) {
+    const cacheKey = `overlay:${block}`;
+    if (this.textureCache.has(cacheKey)) {
+      return this.textureCache.get(cacheKey);
+    }
+
+    const modelId = this.resolveModelId(block);
+    const faceTextureRefs = mcModelLoader.getAllFaceTextures(modelId);
+    
+    if (!faceTextureRefs) {
+      return new Array(6).fill(null);
+    }
+
+    const result = ['down', 'up', 'north', 'south', 'west', 'east'].map(face => {
+      const ref = faceTextureRefs[face];
+      if (ref && typeof ref === 'object' && ref.overlay) {
+        return {
+          texture: this.loadSingleTexture(ref.overlay),
+          tintindex: ref.tintindex !== undefined ? ref.tintindex : -1
+        };
+      }
+      return null;
+    });
+
+    this.textureCache.set(cacheKey, result);
+    return result;
+  }
+
+  /**
+   * 解析方块名称获取模型ID
+   * @param {string} block - 方块名称（可包含状态）
+   * @returns {string} 模型ID
+   */
+  resolveModelId(block) {
+    const { blockName, states } = mcBlockStateLoader.parseBlockStates(block);
+    
+    if (Object.keys(states).length > 0) {
+      const stateModel = mcBlockStateLoader.getModelForStates(blockName, states);
+      if (stateModel && stateModel.model) {
+        return stateModel.model;
+      }
+    }
+    
+    return blockName;
+  }
+
+  /**
+   * 加载所有面的纹理
+   * @param {Object} faceTextureRefs - 面纹理引用对象
+   * @param {string} block - 方块名称
+   * @returns {Object} 面纹理对象
+   */
+  loadFaceTextures(faceTextureRefs, block) {
     const faceTextures = {
       down: null,
       up: null,
@@ -1370,286 +1371,44 @@ class MCTextureLoader {
       east: null
     };
 
-    // 为每个面加载纹理
     for (const [face, textureRef] of Object.entries(faceTextureRefs)) {
-      if (textureRef) {
-        // 检查是否是overlay纹理对象
-        if (typeof textureRef === 'object' && textureRef.base && textureRef.overlay) {
-          // 处理overlay纹理
-          const basePath = this.resolveTexturePath(textureRef.base);
-          const overlayPath = this.resolveTexturePath(textureRef.overlay);
-          
-          if (basePath && overlayPath) {
-            const baseTexture = this.loadTexture(basePath, `${blockName}_${face}_base`);
-            const overlayTexture = this.loadTexture(overlayPath, `${blockName}_${face}_overlay`);
-            
-            // 创建一个包含基础纹理和overlay纹理的对象
-            faceTextures[face] = {
-              base: baseTexture,
-              overlay: overlayTexture
-            };
-          }
-        } else {
-          // 处理普通纹理
-          const texturePath = this.resolveTexturePath(textureRef);
-          if (texturePath) {
-            const texture = this.loadTexture(texturePath, `${blockName}_${face}`);
-            faceTextures[face] = texture;
-          }
-        }
+      if (!textureRef) continue;
+
+      if (typeof textureRef === 'object' && textureRef.base) {
+        const baseTexture = this.loadSingleTexture(textureRef.base);
+        faceTextures[face] = baseTexture;
+      } else {
+        faceTextures[face] = this.loadSingleTexture(textureRef);
       }
     }
 
-    
-    this.textureCache.set(cacheKey, faceTextures);
     return faceTextures;
   }
 
   /**
-   * 加载方块纹理（保持向后兼容，支持方块状态）
-   * @param {string} block - 方块名称或ID，可以包含状态，格式如 "grass_block,snowy=true"
-   * @param {string} variant - 方块变体（可选，已弃用，请使用block参数中的状态）
-   * @returns {Array} 包含纹理和额外信息的数组
+   * 加载单个纹理
+   * @param {string} textureRef - 纹理引用
+   * @returns {THREE.Texture|null} 纹理对象
    */
-  load(block, variant = null) {
-    // 解析方块名称和状态
-    const { blockName, states } = mcBlockStateLoader.parseBlockStates(block);
-    
-    // 如果有状态，尝试从方块状态获取模型
-    let modelId = null;
-    if (Object.keys(states).length > 0) {
-      const stateModel = mcBlockStateLoader.getModelForStates(blockName, states);
-      if (stateModel && stateModel.model) {
-        // 从状态模型中提取模型ID
-        modelId = stateModel.model;
-        console.log(`[MCTextureLoader] 从方块状态获取模型: ${blockName} -> ${modelId}`);
-      }
-    }
-    
-    // 如果没有从状态获取到模型ID，使用默认的方块名称
-    if (!modelId) {
-      modelId = blockName;
-    }
-    
-    const cacheKey = variant ? `${block}:${variant}` : block;
+  loadSingleTexture(textureRef) {
+    const texturePath = this.resolveTexturePath(textureRef);
+    if (!texturePath) return null;
 
-    if (this.textureCache.has(cacheKey)) {
-      return [this.textureCache.get(cacheKey), null];
+    const spriteName = texturePath.spriteName;
+    if (mcSpriteAtlas.hasSprite(spriteName)) {
+      return mcSpriteAtlas.getSpriteTexture(spriteName);
     }
 
-    const model = this.getModelForBlock(modelId);
-    if (!model) {
-      console.warn(`未找到方块 ${block} 的模型 (尝试的方块名称: ${blockName}, 模型ID: ${modelId})`);
-      return [null, null];
-    }
-
-    const texture = this.loadTextureFromModel(model, blockName, variant);
-    if (texture) {
-      this.textureCache.set(cacheKey, texture);
-    }
-
-    return [texture, model];
+    return null;
   }
 
   /**
-   * 获取方块的所有面纹理，如果没有特定面纹理则使用默认纹理（支持方块状态）
-   * @param {string} block - 方块名称或ID，可以包含状态，格式如 "grass_block,snowy=true"
-   * @param {string} variant - 方块变体（可选，已弃用，请使用block参数中的状态）
-   * @returns {Array} 包含6个面纹理的数组
+   * 解析纹理路径
+   * @param {string} textureRef - 纹理引用
+   * @returns {Object|null} 纹理路径信息
    */
-  getFaceTextures(block, variant = null) {
-    // 尝试加载所有面纹理
-    const faceTextures = this.loadAllFaceTextures(block, variant);
-    
-    if (faceTextures) {
-      // 如果成功加载所有面纹理，返回6个面的纹理
-      const result = [
-        faceTextures.down,
-        faceTextures.up,
-        faceTextures.north,
-        faceTextures.south,
-        faceTextures.west,
-        faceTextures.east
-      ];
-      
-      // 对于包含overlay纹理的面，只返回基础纹理
-      // 这样可以保持返回的数据结构一致性
-      const finalResult = result.map(texture => {
-        if (texture && typeof texture === 'object' && texture.base) {
-          return texture.base;
-        }
-        return texture;
-      });
-      
-      return finalResult;
-    } else {
-      // 如果无法加载所有面纹理，回退到单一纹理
-      const [texture] = this.load(block, variant);
-      if (texture) {
-        // 所有面使用相同纹理
-        const result = new Array(6).fill(texture);
-        return result;
-      }
-      
-      // 如果连单一纹理都加载失败，返回6个null
-      console.log(`[MCTextureLoader] 方块 ${block} 连单一纹理都加载失败`);
-      return new Array(6).fill(null);
-    }
-  }
-
-  /**
-   * 获取方块的所有面overlay纹理（支持方块状态）
-   * @param {string} block - 方块名称或ID，可以包含状态，格式如 "grass_block,snowy=true"
-   * @param {string} variant - 方块变体（可选，已弃用，请使用block参数中的状态）
-   * @returns {Array} 包含6个面overlay纹理的数组
-   */
-  getFaceOverlayTextures(block, variant = null) {
-    // 尝试加载所有面纹理
-    const faceTextures = this.loadAllFaceTextures(block, variant);
-    
-    if (faceTextures) {
-      // 如果成功加载所有面纹理，返回6个面的overlay纹理
-      const result = [
-        faceTextures.down,
-        faceTextures.up,
-        faceTextures.north,
-        faceTextures.south,
-        faceTextures.west,
-        faceTextures.east
-      ];
-      
-      // 只返回overlay纹理，如果没有overlay则返回null
-      return result.map(texture => {
-        if (texture && typeof texture === 'object' && texture.overlay) {
-          return texture.overlay;
-        }
-        return null;
-      });
-    }
-    
-    // 如果无法加载所有面纹理，返回6个null
-    return new Array(6).fill(null);
-  }
-
-  preloadTextures(blockList) {
-    const results = {};
-
-    for (const block of blockList) {
-      const texture = this.load(block);
-      results[block] = texture;
-    }
-
-    return results;
-  }
-
-  extractBlockName(block) {
-    if (typeof block === 'string') {
-      return block.includes(':') ? block.split(':')[1] : block;
-    }
-    return block;
-  }
-
-  getModelForBlock(blockName) {
-    // 标准化模型ID，处理minecraft:前缀和block/路径
-    let normalizedModelId = blockName;
-    if (blockName.startsWith('minecraft:')) {
-      normalizedModelId = blockName.substring(10);
-    }
-    if (normalizedModelId.startsWith('block/')) {
-      normalizedModelId = normalizedModelId.substring(6);
-    }
-
-    if (this.blockModelCache.has(normalizedModelId)) {
-      return this.blockModelCache.get(normalizedModelId);
-    }
-
-    // 直接使用blockName，不需要额外的标准化
-    // 因为JSON文件中的键就是"grass_block"这样的名称
-    if (!this.modelData || !this.modelData[normalizedModelId]) {
-      console.warn(`[MCTextureLoader] 未找到方块 ${blockName} (标准化ID: ${normalizedModelId})`);
-      return null;
-    }
-
-    const blockModel = this.modelData[normalizedModelId];
-    const parentId = blockModel.parent;
-
-    if (!parentId) {
-      console.warn(`[MCTextureLoader] 方块 ${blockName} 没有父模型定义`);
-      return null;
-    }
-
-    const parentModel = mcModelLoader.getModel(parentId);
-    if (!parentModel) {
-      console.warn(`[MCTextureLoader] 无法加载父模型 ${parentId}`);
-      return null;
-    }
-
-    // 创建合并后的模型
-    const mergedModel = {
-      ...parentModel,
-      id: `minecraft:block/${blockName}`
-    };
-
-    // 合并纹理定义，子模型的纹理会覆盖父模型的同名纹理
-    if (blockModel.textures) {
-      mergedModel.textures = { ...parentModel.textures, ...blockModel.textures };
-    }
-
-    // 如果子模型有自己的元素，使用子模型的元素
-    // 这对于像grass_block这样有多个元素的模型很重要
-    if (blockModel.elements) {
-      mergedModel.elements = blockModel.elements;
-    }
-
-    this.blockModelCache.set(normalizedModelId, mergedModel);
-    return mergedModel;
-  }
-
-  normalizeBlockName(blockName) {
-    if (blockName.startsWith('minecraft:')) {
-      return blockName.substring(10);
-    }
-    if (blockName.startsWith('block/')) {
-      return blockName.substring(6);
-    }
-    return blockName;
-  }
-
-  loadTextureFromModel(model, blockName, variant) {
-    if (!model || !model.textures) {
-      return null;
-    }
-
-    const textures = model.textures;
-    const textureRef = textures.all || textures.particle || textures.side || textures.texture || textures.down;
-
-    if (!textureRef) {
-      console.warn(`模型 ${blockName} 没有可用的纹理引用`);
-      return null;
-    }
-
-    let resolvedTextureRef = textureRef;
-    if (typeof textureRef === 'string' && textureRef.startsWith('#')) {
-      const varName = textureRef.substring(1);
-      if (textures[varName]) {
-        resolvedTextureRef = textures[varName];
-      }
-    }
-
-    const texturePath = this.resolveTexturePath(resolvedTextureRef);
-    if (!texturePath) {
-      return null;
-    }
-
-    return this.loadTexture(texturePath, blockName);
-  }
-
   resolveTexturePath(textureRef) {
-    if (!textureRef || typeof textureRef !== 'string') {
-      return null;
-    }
-
-    if (textureRef.startsWith('#')) {
+    if (!textureRef || typeof textureRef !== 'string' || textureRef.startsWith('#')) {
       return null;
     }
 
@@ -1664,53 +1423,27 @@ class MCTextureLoader {
       path = textureRef;
     }
 
-    // 处理精灵图名称，确保格式正确
     let spriteName = path;
     if (!spriteName.endsWith('.png')) {
       spriteName = `${spriteName}.png`;
     }
-    // 移除 block/ 前缀，因为精灵图中没有这个前缀
     spriteName = spriteName.replace(/^block\//, '');
 
-    return {
-      namespace,
-      path,
-      spriteName
-    };
+    return { namespace, path, spriteName };
   }
 
-  loadTexture(texturePath, blockName) {
-    const spriteName = texturePath.spriteName;
-
-    if (mcSpriteAtlas.hasSprite(spriteName)) {
-      const spriteTexture = mcSpriteAtlas.getSpriteTexture(spriteName);
-      if (spriteTexture) {
-        return spriteTexture;
-      }
-    } else {
-      console.warn(`精灵图中未找到纹理: ${spriteName} (方块: ${blockName})`);
-    }
-
-    return null;
-  }
-
-  preloadTextures(blockList) {
-    const results = {};
-
-    for (const block of blockList) {
-      const texture = this.load(block);
-      results[block] = texture;
-    }
-
-    return results;
-  }
-
+  /**
+   * 清除缓存
+   */
   clearCache() {
     this.textureCache.clear();
     this.blockModelCache.clear();
-    console.log('[MCTextureLoader] 缓存已清除');
   }
 
+  /**
+   * 获取缓存大小
+   * @returns {Object} 缓存大小信息
+   */
   getCacheSize() {
     return {
       textures: this.textureCache.size,
@@ -2123,7 +1856,7 @@ function preloadBaseTextures() {
     }
   }
 
-  console.log('###############命令预加载完成###############');
+  console.log('###############预加载完成###############');
 
   for (let i = 0; i < window.Process.scenes.length; i++) {
     const scene = window.Process.scenes[i];
@@ -2143,20 +1876,28 @@ function preloadBaseTextures() {
 //region Vanilla
 // 主要逻辑初始化：加载资源
 const vanilla = (async () => {
-  await Promise.all([
-    loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
-    mcSpriteAtlas.load(
-      '/ponder/minecraft/textures/block/1.21.8.basic.atlas.json',
-      '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
-      LoadingManager
-    ),
-    mcModelLoader.loadModelData('https://unpkg.com/minecraft-assets@1.17.0/minecraft-assets/data/1.21.8/blocks_models.json'),
-    mcBlockStateLoader.load('/ponder/minecraft/blocks_states.json')
-  ]);
-   
-  languageManager.preloadAllLanguageData();
-  
-  preloadBaseTextures();
+  try {
+    await Promise.all([
+      loadFile('/ponder/engine/domdkw/v1/command.js', 'js', true, '<span class="file-tag mr y">vanilla.js</span>=><span class="file-tag mr ml y">command.js</span>加载命令文件'),
+      mcSpriteAtlas.load(
+        '/ponder/minecraft/textures/block/1.21.8.basic.atlas.json',
+        '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
+        LoadingManager
+      ),
+      mcModelLoader.loadModelData('/ponder/minecraft/models/block/1.21.8.model.json'),
+      mcBlockStateLoader.load('/ponder/minecraft/blocks_states.json')
+    ]);
+    
+    languageManager.preloadAllLanguageData();
+    
+    if (mcModelLoader.modelData) {
+      preloadBaseTextures();
+    } else {
+      console.warn('[Vanilla] 模型数据未加载成功，跳过纹理预加载');
+    }
+  } catch (error) {
+    console.error('[Vanilla] 资源加载失败:', error);
+  }
 });
 
 //region LoadingManager

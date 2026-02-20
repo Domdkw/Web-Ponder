@@ -245,10 +245,6 @@ function setblockfall(block, x, y, z, duration) {
 }
 //region fill
 function fill(blockStr, x1, y1, z1, x2, y2, z2){
-  // 解析方块字符串
-  const { blockName: block, props } = parseBlockStr(blockStr);
-
-  // 确保坐标范围正确（从小到大）
   const minX = Math.min(x1, x2);
   const maxX = Math.max(x1, x2);
   const minY = Math.min(y1, y2);
@@ -256,38 +252,27 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
   const minZ = Math.min(z1, z2);
   const maxZ = Math.max(z1, z2);
   
-  // 处理六个面的材质
-  let textures = [];
-  
-  // 使用多面纹理加载功能，传入方块名称，返回6个面的材质
-  textures = mcTextureLoader.getFaceTextures(block, props);
-  
-  // 获取overlay纹理
-  const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
+  const textures = mcTextureLoader.getFaceTextures(blockStr);
+  const overlayTextures = mcTextureLoader.getFaceOverlayTextures(blockStr);
 
-  // Three.js BoxGeometry的面顺序是：右、左、顶、底、前、后
-  // 对应我们的纹理顺序：东、西、顶、底、北、南
   const threejsMaterials = [
-    textures[5], // 右面 -> 东面
-    textures[4], // 左面 -> 西面
-    textures[1], // 顶面
-    textures[0], // 底面
-    textures[2], // 前面 -> 北面
-    textures[3]  // 后面 -> 南面
+    textures[5],
+    textures[4],
+    textures[1],
+    textures[0],
+    textures[2],
+    textures[3]
   ];
   
-  // 批量创建方块，减少函数调用次数
   const blocksToAdd = [];
+  const blockName = blockStr.split(',')[0];
   
   for(let x = minX; x <= maxX; x++){
     for(let y = minY; y <= maxY; y++){
       for(let z = minZ; z <= maxZ; z++){
-        // 检查目标位置是否已有方块，如果有则先移除
         removeblock(x, y, z);
         
-        // 创建材质数组，每个面对应一个材质
-        const materials = threejsMaterials.map((texture, index) => {
-          // 创建材质选项
+        const materials = threejsMaterials.map((texture) => {
           const materialOptions = {
             transparent: true,
             opacity: 1,
@@ -311,54 +296,52 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
           });
         });
         
-        // 重用几何体实例
         const geometry = getReusableBoxGeometry();
         
         const blockObj = new THREE.Mesh(geometry, materials);
         blockObj.position.set(x, y, z);
-        blockObj.name = block;
+        blockObj.name = blockName;
         
-        // 处理overlay纹理
         if (overlayTextures && overlayTextures.some(t => t !== null)) {
-          // Three.js BoxGeometry的面顺序是：右、左、顶、底、前、后
-          // 对应我们的纹理顺序：东、西、顶、底、北、南
           const threejsOverlayMaterials = [
-            overlayTextures[5], // 右面 -> 东面
-            overlayTextures[4], // 左面 -> 西面
-            overlayTextures[1], // 顶面
-            overlayTextures[0], // 底面
-            overlayTextures[2], // 前面 -> 北面
-            overlayTextures[3]  // 后面 -> 南面
+            overlayTextures[5],
+            overlayTextures[4],
+            overlayTextures[1],
+            overlayTextures[0],
+            overlayTextures[2],
+            overlayTextures[3]
           ];
           
-          // 创建overlay材质数组
-          const overlayMaterials = threejsOverlayMaterials.map((overlayTexture, index) => {
-            if (overlayTexture) {
-              overlayTexture.magFilter = THREE.NearestFilter;
-              overlayTexture.minFilter = THREE.NearestFilter;
-              overlayTexture.generateMipmaps = false;
+          const overlayMaterials = threejsOverlayMaterials.map((overlayData) => {
+            if (overlayData && overlayData.texture) {
+              overlayData.texture.magFilter = THREE.NearestFilter;
+              overlayData.texture.minFilter = THREE.NearestFilter;
+              overlayData.texture.generateMipmaps = false;
               
-              return new THREE.MeshBasicMaterial({
-                map: overlayTexture,
+              const materialOptions = {
+                map: overlayData.texture,
                 transparent: true,
                 opacity: 1,
                 depthTest: true,
                 depthWrite: false,
                 side: THREE.FrontSide
-              });
+              };
+              
+              if (overlayData.tintindex >= 0) {
+                materialOptions.color = new THREE.Color(0x5D9B3E);
+              }
+              
+              return new THREE.MeshBasicMaterial(materialOptions);
             }
             return null;
           });
           
-          // 创建overlay几何体，稍微大一点以避免z-fighting
-          // 使用新的几何体实例，避免影响共享几何体
           const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
           
           const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
           overlayMesh.position.copy(blockObj.position);
-          overlayMesh.name = `${block}_overlay`;
+          overlayMesh.name = `${blockName}_overlay`;
           
-          // 将overlay添加到主方块对象
           blockObj.add(overlayMesh);
         }
         
@@ -367,12 +350,10 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
     }
   }
   
-  // 批量添加到场景
   blocksToAdd.forEach(blockObj => {
     scene.add(blockObj);
   });
   
-  // 延迟渲染，避免频繁渲染
   requestAnimationFrame(() => {
     renderer.render(scene, camera);
   });
