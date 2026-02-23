@@ -1188,6 +1188,10 @@ class MCBlockStateLoader {
     }
     
     if (!variant) {
+      variant = this.getFirstVariant(variants);
+    }
+    
+    if (!variant) {
       return null;
     }
 
@@ -1224,6 +1228,19 @@ class MCBlockStateLoader {
       }
     }
     return null;
+  }
+
+  /**
+   * 获取第一个可用的变种
+   * @param {Object} variants - 变体对象
+   * @returns {Object|null} 第一个变体
+   */
+  getFirstVariant(variants) {
+    const keys = Object.keys(variants);
+    if (keys.length === 0) {
+      return null;
+    }
+    return variants[keys[0]];
   }
 
   /**
@@ -2033,7 +2050,7 @@ class BaseClass{
   }
   meadow = {
     preloadTexture:(style) =>{
-      const {surface} = style;
+      const {grass_block_surface:surface=true} = style;
       
       loadedTexture['minecraft:grass_block'] = mcSpriteAtlas.getSpriteTexture('grass_block_top.png');
       
