@@ -1839,6 +1839,16 @@ function preloadBaseTextures() {
   //动态检测需要预加载的方块
   const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
   const needBlock = [];
+  console.log('###########开始预加载贴图############');
+
+  for (let i = 0; i < window.Process.scenes.length; i++) {
+    const scene = window.Process.scenes[i];
+    if (!scene.base) {
+      console.log(`[PreloadBaseTexture] 场景${i+1}/${window.Process.scenes.length}没有base属性，跳过预加载`);
+      continue;
+    }
+    Base.preloadTexture(i);
+  }
 
   for (const scene of window.Process.scenes) {
     if (!scene.fragment) continue;
@@ -1861,28 +1871,18 @@ function preloadBaseTextures() {
     }
   }
 
-  console.log('###########开始预加载贴图############');
-  console.log(`需要预加载的方块数量: ${needBlock.length}`);
+  console.log(`流程指定方块数量: ${needBlock.length}`);
 
   for (const block of needBlock) {
-    const texture = mcTextureLoader.load(block);
-    if (texture) {
-      console.log(`已加载纹理: ${block}`);
+    const textures = mcTextureLoader.getFaceTextures(block);
+    if (textures && textures.some(t => t !== null)) {
+      console.log(`加载纹理: ${block}`);
     } else {
       console.warn(`未能加载纹理: ${block}`);
     }
   }
 
   console.log('###############预加载完成###############');
-
-  for (let i = 0; i < window.Process.scenes.length; i++) {
-    const scene = window.Process.scenes[i];
-    if (!scene.base) {
-      console.log(`[PreloadBaseTexture] 场景${i+1}/${window.Process.scenes.length}没有base属性，跳过预加载`);
-      continue;
-    }
-    Base.preloadTexture(i);
-  }
 
   texturesLoaded = true;
   console.log('所有贴图预加载完成');
@@ -2052,12 +2052,10 @@ class BaseClass{
     preloadTexture:(style) =>{
       const {grass_block_surface:surface=true} = style;
       
-      loadedTexture['minecraft:grass_block'] = mcSpriteAtlas.getSpriteTexture('grass_block_top.png');
+      mcTextureLoader.getFaceTextures('minecraft:grass_block');
+      mcTextureLoader.getFaceTextures('minecraft:dirt');
       
-      // 预加载泥土方块贴图
-      loadedTexture['minecraft:dirt'] = mcSpriteAtlas.getSpriteTexture('dirt.png');
-      
-      console.log(`[PBT=>Base.meadow] 预加载贴图: grass_block_top.png, dirt.png (surface=${surface})`);
+      console.log(`[PBT=>Base.meadow] 预加载贴图: grass_block, dirt (surface=${surface})`);
     },
     set:(style) =>{
       const {size={x:4,y:1,z:4}, offset={x:0,y:0,z:0}, 'grass_block-surface':surface=true} = style;
@@ -2071,7 +2069,7 @@ class BaseClass{
           // 如果size.y大于1，创建泥土层
           // 创建顶层草地方块
           fill('minecraft:grass_block', offset.x, offset.y, offset.z, offset.x+size.x, offset.y, offset.z+size.z);
-          fill('minecraft:dirt', offset.x, offset.y-1, offset.z, offset.x+size.x, offset.y-1+size.y, offset.z+size.z);
+          fill('minecraft:dirt', offset.x, offset.y-1, offset.z, offset.x+size.x, offset.y-size.y+1, offset.z+size.z);
         }else if(size.y === 1){
           fill('minecraft:grass_block', offset.x, offset.y, offset.z, offset.x+size.x, offset.y, offset.z+size.z);
         }

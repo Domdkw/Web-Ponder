@@ -25,7 +25,7 @@
         },
         "offset":{
           "x":0,
-          "y":-1,
+          "y":0,
           "z":0
         },
         "grass_block-surface":true
@@ -33,9 +33,9 @@
     },
     "fragment":[
       [
-        "camera.position.set(7,7,7)//10, 16, -20",
+        "camera.position.set(9,9,9)//10, 16, -20",
         "camera.lookAt(0,0,0)//8, 2, 8",
-        "fill('minecraft:grass_block',3,0,0,3,0,0)"
+        "fill('minecraft:grass_block',3,0,0,4,0,0)"
       ]
     ]
   }

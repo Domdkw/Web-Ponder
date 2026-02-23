@@ -158,33 +158,93 @@ function setblock(block, x, y, z){
   // 检查目标位置是否已有方块，如果有则先移除
   removeblock(x, y, z);
   
-  const texture = mcTextureLoader.load(block);
+  // 使用新纹理加载逻辑：获取6个面的纹理
+  const textures = mcTextureLoader.getFaceTextures(block);
+  const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
   
-  // 创建材质，使用对象字面量避免重复创建
-  const materialOptions = {
-    transparent: true,
-    opacity: 1,
-    color: 0xffffff
-  };
+  // 按照Three.js BoxGeometry的面顺序排列: +X(east), -X(west), +Y(up), -Y(down), +Z(south), -Z(north)
+  const threejsMaterials = [
+    textures[5], // +X east
+    textures[4], // -X west
+    textures[1], // +Y up
+    textures[0], // -Y down
+    textures[2], // +Z south
+    textures[3]  // -Z north
+  ];
   
-  // 只有当贴图存在时才设置 map 属性
-  if (texture) {
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    materialOptions.map = texture;
-  } else {
-    console.warn(`方块 ${block} 的贴图未找到，使用默认颜色`);
-    materialOptions.color = new THREE.Color(0xff0000);
-  }
+  const materials = threejsMaterials.map((texture) => {
+    const materialOptions = {
+      transparent: true,
+      opacity: 1,
+      color: 0xffffff
+    };
+    
+    if (texture) {
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      materialOptions.map = texture;
+    } else {
+      materialOptions.color = new THREE.Color(0xff0000);
+    }
+    
+    return new THREE.MeshBasicMaterial({
+      ...materialOptions,
+      depthTest: true,
+      depthWrite: true,
+      side: THREE.FrontSide
+    });
+  });
   
-  // 重用几何体实例，避免重复创建
   const geometry = getReusableBoxGeometry();
-  const material = new THREE.MeshBasicMaterial(materialOptions);
   
-  const blockObj = new THREE.Mesh(geometry, material);
+  const blockObj = new THREE.Mesh(geometry, materials);
   blockObj.position.set(x, y, z);
-  blockObj.name = block;
+  blockObj.name = block.split(',')[0];
+  
+  // 处理overlay纹理（如草方块的雪overlay）
+  if (overlayTextures && overlayTextures.some(t => t !== null)) {
+    const threejsOverlayMaterials = [
+      overlayTextures[5],
+      overlayTextures[4],
+      overlayTextures[1],
+      overlayTextures[0],
+      overlayTextures[2],
+      overlayTextures[3]
+    ];
+    
+    const overlayMaterials = threejsOverlayMaterials.map((overlayData) => {
+      if (overlayData && overlayData.texture) {
+        overlayData.texture.magFilter = THREE.NearestFilter;
+        overlayData.texture.minFilter = THREE.NearestFilter;
+        overlayData.texture.generateMipmaps = false;
+        
+        const materialOptions = {
+          map: overlayData.texture,
+          transparent: true,
+          opacity: 1,
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.FrontSide
+        };
+        
+        if (overlayData.tintindex >= 0) {
+          materialOptions.color = new THREE.Color(0x5D9B3E);
+        }
+        
+        return new THREE.MeshBasicMaterial(materialOptions);
+      }
+      return new THREE.MeshBasicMaterial({ visible: false });
+    });
+    
+    const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
+    overlayMesh.position.set(0, 0, 0);
+    overlayMesh.name = `${block.split(',')[0]}_overlay`;
+    overlayMesh.raycast = () => {};
+    
+    blockObj.add(overlayMesh);
+  }
   
   scene.add(blockObj);
   
@@ -207,33 +267,93 @@ function setblockfall(block, x, y, z, duration) {
   // 检查目标位置是否已有方块，如果有则先移除
   removeblock(x, y, z);
   
-  const texture = mcTextureLoader.load(block);
+  // 使用新纹理加载逻辑：获取6个面的纹理
+  const textures = mcTextureLoader.getFaceTextures(block);
+  const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
   
-  // 创建材质，使用对象字面量
-  const materialOptions = {
-    transparent: true,
-    opacity: 0,
-    color: 0xffffff
-  };
+  // 按照Three.js BoxGeometry的面顺序排列
+  const threejsMaterials = [
+    textures[5],
+    textures[4],
+    textures[1],
+    textures[0],
+    textures[2],
+    textures[3]
+  ];
   
-  // 只有当贴图存在时才设置 map 属性
-  if (texture) {
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    materialOptions.map = texture;
-  } else {
-    console.warn(`方块 ${block} 的贴图未找到，使用默认颜色`);
-    materialOptions.color = new THREE.Color(0xff0000);
-  }
+  const materials = threejsMaterials.map((texture) => {
+    const materialOptions = {
+      transparent: true,
+      opacity: 0,
+      color: 0xffffff
+    };
+    
+    if (texture) {
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      materialOptions.map = texture;
+    } else {
+      materialOptions.color = new THREE.Color(0xff0000);
+    }
+    
+    return new THREE.MeshBasicMaterial({
+      ...materialOptions,
+      depthTest: true,
+      depthWrite: true,
+      side: THREE.FrontSide
+    });
+  });
   
-  // 重用几何体实例
   const geometry = getReusableBoxGeometry();
-  const material = new THREE.MeshBasicMaterial(materialOptions);
   
-  const blockObj = new THREE.Mesh(geometry, material);
+  const blockObj = new THREE.Mesh(geometry, materials);
   blockObj.position.set(x, y + 1, z); // 初始位置在目标位置上方一个单位
-  blockObj.name = block;
+  blockObj.name = block.split(',')[0];
+  
+  // 处理overlay纹理
+  if (overlayTextures && overlayTextures.some(t => t !== null)) {
+    const threejsOverlayMaterials = [
+      overlayTextures[5],
+      overlayTextures[4],
+      overlayTextures[1],
+      overlayTextures[0],
+      overlayTextures[2],
+      overlayTextures[3]
+    ];
+    
+    const overlayMaterials = threejsOverlayMaterials.map((overlayData) => {
+      if (overlayData && overlayData.texture) {
+        overlayData.texture.magFilter = THREE.NearestFilter;
+        overlayData.texture.minFilter = THREE.NearestFilter;
+        overlayData.texture.generateMipmaps = false;
+        
+        const materialOptions = {
+          map: overlayData.texture,
+          transparent: true,
+          opacity: 0,
+          depthTest: true,
+          depthWrite: false,
+          side: THREE.FrontSide
+        };
+        
+        if (overlayData.tintindex >= 0) {
+          materialOptions.color = new THREE.Color(0x5D9B3E);
+        }
+        
+        return new THREE.MeshBasicMaterial(materialOptions);
+      }
+      return new THREE.MeshBasicMaterial({ visible: false });
+    });
+    
+    const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
+    overlayMesh.position.set(0, 0, 0);
+    overlayMesh.name = `${block.split(',')[0]}_overlay`;
+    overlayMesh.raycast = () => {};
+    
+    blockObj.add(overlayMesh);
+  }
   
   scene.add(blockObj);
   
@@ -333,14 +453,15 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
               
               return new THREE.MeshBasicMaterial(materialOptions);
             }
-            return null;
+            return new THREE.MeshBasicMaterial({ visible: false });
           });
           
           const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
           
           const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
-          overlayMesh.position.copy(blockObj.position);
+          overlayMesh.position.set(0, 0, 0);
           overlayMesh.name = `${blockName}_overlay`;
+          overlayMesh.raycast = () => {};
           
           blockObj.add(overlayMesh);
         }
@@ -368,8 +489,19 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
   const minZ = Math.min(z1, z2);
   const maxZ = Math.max(z1, z2);
   
-  // 预先加载纹理，避免重复查找
-  const texture = mcTextureLoader.load(block);
+  // 使用新纹理加载逻辑：获取6个面的纹理
+  const textures = mcTextureLoader.getFaceTextures(block);
+  const overlayTextures = mcTextureLoader.getFaceOverlayTextures(block);
+  
+  // 按照Three.js BoxGeometry的面顺序排列
+  const threejsMaterials = [
+    textures[5],
+    textures[4],
+    textures[1],
+    textures[0],
+    textures[2],
+    textures[3]
+  ];
   
   // 创建一个组来包含所有方块
   const blockGroup = new THREE.Group();
@@ -381,6 +513,7 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
   
   // 重用几何体实例
   const geometry = getReusableBoxGeometry();
+  const blockName = block.split(',')[0];
   
   // 为每个位置创建方块并添加到组中
   for(let x = minX; x <= maxX; x++){
@@ -389,29 +522,78 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
         // 检查目标位置是否已有方块，如果有则先移除
         removeblock(x, y, z);
         
-        // 创建材质
-        const materialOptions = {
-          transparent: true,
-          opacity: 0,
-          color: 0xffffff
-        };
+        // 创建材质数组
+        const materials = threejsMaterials.map((texture) => {
+          const materialOptions = {
+            transparent: true,
+            opacity: 0,
+            color: 0xffffff
+          };
+          
+          if (texture) {
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            texture.generateMipmaps = false;
+            materialOptions.map = texture;
+          } else {
+            materialOptions.color = new THREE.Color(0xff0000);
+          }
+          
+          return new THREE.MeshBasicMaterial({
+            ...materialOptions,
+            depthTest: true,
+            depthWrite: true,
+            side: THREE.FrontSide
+          });
+        });
         
-        // 只有当贴图存在时才设置 map 属性
-        if (texture) {
-          texture.magFilter = THREE.NearestFilter;
-          texture.minFilter = THREE.NearestFilter;
-          texture.generateMipmaps = false;
-          materialOptions.map = texture;
-        } else {
-          materialOptions.color = new THREE.Color(0xff0000);
-        }
-        
-        const material = new THREE.MeshBasicMaterial(materialOptions);
-        const blockObj = new THREE.Mesh(geometry, material);
+        const blockObj = new THREE.Mesh(geometry, materials);
         
         // 相对于组的位置设置方块位置
         blockObj.position.set(x - centerX, y - (centerY - 1), z - centerZ);
-        blockObj.name = block;
+        blockObj.name = blockName;
+        
+        // 处理overlay纹理
+        if (overlayTextures && overlayTextures.some(t => t !== null)) {
+          const threejsOverlayMaterials = [
+            overlayTextures[5],
+            overlayTextures[4],
+            overlayTextures[1],
+            overlayTextures[0],
+            overlayTextures[2],
+            overlayTextures[3]
+          ];
+          
+          const overlayMaterials = threejsOverlayMaterials.map((overlayData) => {
+            if (overlayData && overlayData.texture) {
+              overlayData.texture.magFilter = THREE.NearestFilter;
+              overlayData.texture.minFilter = THREE.NearestFilter;
+              overlayData.texture.generateMipmaps = false;
+              
+              const materialOptions = {
+                map: overlayData.texture,
+                transparent: true,
+                opacity: 0,
+                depthTest: true,
+                depthWrite: false,
+                side: THREE.FrontSide
+              };
+              
+              if (overlayData.tintindex >= 0) {
+                materialOptions.color = new THREE.Color(0x5D9B3E);
+              }
+              
+              return new THREE.MeshBasicMaterial(materialOptions);
+            }
+            return null;
+          });
+          
+          const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+          const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
+          overlayMesh.name = `${blockName}_overlay`;
+          
+          blockObj.add(overlayMesh);
+        }
         
         blockGroup.add(blockObj);
       }
@@ -448,7 +630,23 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
       for (let i = 0; i < children.length; i++) {
         const blockObj = children[i];
         if (blockObj.material) {
-          blockObj.material.opacity = easedProgress;
+          if (Array.isArray(blockObj.material)) {
+            blockObj.material.forEach(mat => mat.opacity = easedProgress);
+          } else {
+            blockObj.material.opacity = easedProgress;
+          }
+        }
+        // 更新overlay的透明度
+        if (blockObj.children) {
+          blockObj.children.forEach(child => {
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => mat.opacity = easedProgress);
+              } else {
+                child.material.opacity = easedProgress;
+              }
+            }
+          });
         }
       }
       
