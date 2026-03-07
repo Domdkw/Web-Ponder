@@ -262,7 +262,7 @@ function setblock(block, x, y, z){
       return new THREE.MeshBasicMaterial({ visible: false });
     });
     
-    const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const overlayGeometry = new THREE.BoxGeometry(1, 1, 1);
     const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
     overlayMesh.position.set(0, 0, 0);
     overlayMesh.name = `${block.split(',')[0]}_overlay`;
