@@ -1,0 +1,6 @@
+{
+  "default": "meadow",
+  "biomes": {
+    "meadow": "#83bb6d"
+  }
+}

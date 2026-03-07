@@ -1470,6 +1470,125 @@ class MCTextureLoader {
 }
 
 // ========================================
+// MCColoringManager 类 - 方块着色管理
+// ========================================
+//region MCColoringManager
+class MCColoringManager {
+  constructor() {
+    this.coloringData = new Map();
+    this.currentBiome = 'meadow';
+    this.isLoaded = false;
+  }
+
+  /**
+   * 加载着色配置文件
+   * @param {string} configPath - 配置文件路径
+   * @returns {Promise<boolean>} 加载是否成功
+   */
+  async loadConfig(configPath) {
+    try {
+      const response = await fetch(configPath);
+      if (!response.ok) {
+        console.warn(`[MCColoringManager] 无法加载着色配置: ${configPath}`);
+        return false;
+      }
+      
+      const data = await response.json();
+      this.coloringData.set('grass', data);
+      
+      if (data.default) {
+        this.currentBiome = data.default;
+      }
+      
+      this.isLoaded = true;
+      console.log(`[MCColoringManager] 着色配置加载成功，默认生物群系: ${this.currentBiome}`);
+      return true;
+    } catch (error) {
+      console.error(`[MCColoringManager] 加载着色配置失败:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * 获取指定方块类型在当前生物群系下的颜色
+   * @param {string} blockType - 方块类型，如 'grass'
+   * @param {string} biome - 生物群系名称（可选，默认使用当前生物群系）
+   * @returns {THREE.Color|null} 颜色对象
+   */
+  getColor(blockType, biome = null) {
+    const config = this.coloringData.get(blockType);
+    if (!config) return null;
+
+    const targetBiome = biome || config.default || this.currentBiome;
+    const colorHex = config.biomes?.[targetBiome];
+
+    if (!colorHex) {
+      console.warn(`[MCColoringManager] 未找到生物群系 "${targetBiome}" 的颜色配置`);
+      return null;
+    }
+
+    return new THREE.Color(colorHex);
+  }
+
+  /**
+   * 获取颜色的十六进制值
+   * @param {string} blockType - 方块类型
+   * @param {string} biome - 生物群系名称（可选）
+   * @returns {string|null} 十六进制颜色字符串，如 "#83bb6d"
+   */
+  getColorHex(blockType, biome = null) {
+    const config = this.coloringData.get(blockType);
+    if (!config) return null;
+
+    const targetBiome = biome || config.default || this.currentBiome;
+    return config.biomes?.[targetBiome] || null;
+  }
+
+  /**
+   * 设置当前生物群系
+   * @param {string} biome - 生物群系名称
+   */
+  setBiome(biome) {
+    this.currentBiome = biome;
+    console.log(`[MCColoringManager] 当前生物群系已设置为: ${biome}`);
+  }
+
+  /**
+   * 获取当前生物群系
+   * @returns {string} 当前生物群系名称
+   */
+  getBiome() {
+    return this.currentBiome;
+  }
+
+  /**
+   * 添加或更新生物群系颜色
+   * @param {string} blockType - 方块类型
+   * @param {string} biome - 生物群系名称
+   * @param {string} colorHex - 十六进制颜色值
+   */
+  setBiomeColor(blockType, biome, colorHex) {
+    let config = this.coloringData.get(blockType);
+    if (!config) {
+      config = { default: biome, biomes: {} };
+      this.coloringData.set(blockType, config);
+    }
+    config.biomes[biome] = colorHex;
+  }
+
+  /**
+   * 获取所有可用的生物群系列表
+   * @param {string} blockType - 方块类型
+   * @returns {Array<string>} 生物群系名称数组
+   */
+  getAvailableBiomes(blockType) {
+    const config = this.coloringData.get(blockType);
+    if (!config || !config.biomes) return [];
+    return Object.keys(config.biomes);
+  }
+}
+
+// ========================================
 // LanguageManager 类 - 语言管理
 // ========================================
 //region LanguageManager
@@ -1902,7 +2021,8 @@ const vanilla = (async () => {
         LoadingManager
       ),
       mcModelLoader.loadModelData('/ponder/minecraft/models/block/1.21.8.model.json'),
-      mcBlockStateLoader.load('/ponder/minecraft/blocks_states.json')
+      mcBlockStateLoader.load('/ponder/minecraft/blocks_states.json'),
+      mcColoringManager.loadConfig('/ponder/minecraft/coloring/grass.json')
     ]);
     
     languageManager.preloadAllLanguageData();
@@ -3503,5 +3623,7 @@ const mcTextureLoader = new MCTextureLoader();
 const mcModelLoader = new MCModelLoader();
 // 全局方块状态加载器实例
 const mcBlockStateLoader = new MCBlockStateLoader();
+// 全局着色管理器实例
+const mcColoringManager = new MCColoringManager();
 // 启动Ponder引擎
 window.onload = vanilla();

@@ -6,6 +6,20 @@ function idle(duration) {
   return new Promise(resolve => setTimeout(resolve, duration * 1000));
 }
 
+/**
+ * 获取草方块着色颜色
+ * @param {string} blockType - 方块类型，默认 'grass'
+ * @param {string} biome - 生物群系名称，可选
+ * @returns {THREE.Color} 颜色对象
+ */
+function getGrassColor(blockType = 'grass', biome = null) {
+  if (typeof mcColoringManager !== 'undefined') {
+    const color = mcColoringManager.getColor(blockType, biome);
+    if (color) return color;
+  }
+  return new THREE.Color(0x83bb6d);
+}
+
 // region moveblock
 // 移动方块函数 - 处理位置变化（优化版）
 function moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) {
@@ -229,7 +243,7 @@ function setblock(block, x, y, z){
         };
         
         if (overlayData.tintindex >= 0) {
-          materialOptions.color = new THREE.Color(0x5D9B3E);
+          materialOptions.color = getGrassColor();
         }
         
         return new THREE.MeshBasicMaterial(materialOptions);
@@ -338,7 +352,7 @@ function setblockfall(block, x, y, z, duration) {
         };
         
         if (overlayData.tintindex >= 0) {
-          materialOptions.color = new THREE.Color(0x5D9B3E);
+          materialOptions.color = getGrassColor();
         }
         
         return new THREE.MeshBasicMaterial(materialOptions);
@@ -448,7 +462,7 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
               };
               
               if (overlayData.tintindex >= 0) {
-                materialOptions.color = new THREE.Color(0x5D9B3E);
+                materialOptions.color = getGrassColor();
               }
               
               return new THREE.MeshBasicMaterial(materialOptions);
@@ -580,7 +594,7 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
               };
               
               if (overlayData.tintindex >= 0) {
-                materialOptions.color = new THREE.Color(0x5D9B3E);
+                materialOptions.color = getGrassColor();
               }
               
               return new THREE.MeshBasicMaterial(materialOptions);
