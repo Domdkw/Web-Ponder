@@ -186,18 +186,29 @@ function setblock(block, x, y, z){
     textures[3]  // -Z north
   ];
   
-  const materials = threejsMaterials.map((texture) => {
+  const materials = threejsMaterials.map((textureData) => {
     const materialOptions = {
       transparent: true,
       opacity: 1,
       color: 0xffffff
     };
     
-    if (texture) {
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.generateMipmaps = false;
-      materialOptions.map = texture;
+    if (textureData) {
+      const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+      const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+      
+      if (texture) {
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        materialOptions.map = texture;
+        
+        if (tintindex >= 0) {
+          materialOptions.color = getGrassColor();
+        }
+      } else {
+        materialOptions.color = new THREE.Color(0xff0000);
+      }
     } else {
       materialOptions.color = new THREE.Color(0xff0000);
     }
@@ -295,18 +306,29 @@ function setblockfall(block, x, y, z, duration) {
     textures[3]
   ];
   
-  const materials = threejsMaterials.map((texture) => {
+  const materials = threejsMaterials.map((textureData) => {
     const materialOptions = {
       transparent: true,
       opacity: 0,
       color: 0xffffff
     };
     
-    if (texture) {
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.generateMipmaps = false;
-      materialOptions.map = texture;
+    if (textureData) {
+      const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+      const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+      
+      if (texture) {
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        materialOptions.map = texture;
+        
+        if (tintindex >= 0) {
+          materialOptions.color = getGrassColor();
+        }
+      } else {
+        materialOptions.color = new THREE.Color(0xff0000);
+      }
     } else {
       materialOptions.color = new THREE.Color(0xff0000);
     }
@@ -406,18 +428,29 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
       for(let z = minZ; z <= maxZ; z++){
         removeblock(x, y, z);
         
-        const materials = threejsMaterials.map((texture) => {
+        const materials = threejsMaterials.map((textureData) => {
           const materialOptions = {
             transparent: true,
             opacity: 1,
             color: 0xffffff
           };
           
-          if (texture) {
-            texture.magFilter = THREE.NearestFilter;
-            texture.minFilter = THREE.NearestFilter;
-            texture.generateMipmaps = false;
-            materialOptions.map = texture;
+          if (textureData) {
+            const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+            const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+            
+            if (texture) {
+              texture.magFilter = THREE.NearestFilter;
+              texture.minFilter = THREE.NearestFilter;
+              texture.generateMipmaps = false;
+              materialOptions.map = texture;
+              
+              if (tintindex >= 0) {
+                materialOptions.color = getGrassColor();
+              }
+            } else {
+              materialOptions.color = new THREE.Color(0xff0000);
+            }
           } else {
             materialOptions.color = new THREE.Color(0xff0000);
           }
@@ -537,18 +570,29 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
         removeblock(x, y, z);
         
         // 创建材质数组
-        const materials = threejsMaterials.map((texture) => {
+        const materials = threejsMaterials.map((textureData) => {
           const materialOptions = {
             transparent: true,
             opacity: 0,
             color: 0xffffff
           };
           
-          if (texture) {
-            texture.magFilter = THREE.NearestFilter;
-            texture.minFilter = THREE.NearestFilter;
-            texture.generateMipmaps = false;
-            materialOptions.map = texture;
+          if (textureData) {
+            const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+            const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+            
+            if (texture) {
+              texture.magFilter = THREE.NearestFilter;
+              texture.minFilter = THREE.NearestFilter;
+              texture.generateMipmaps = false;
+              materialOptions.map = texture;
+              
+              if (tintindex >= 0) {
+                materialOptions.color = getGrassColor();
+              }
+            } else {
+              materialOptions.color = new THREE.Color(0xff0000);
+            }
           } else {
             materialOptions.color = new THREE.Color(0xff0000);
           }

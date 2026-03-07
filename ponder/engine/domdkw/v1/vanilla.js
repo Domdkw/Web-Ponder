@@ -844,7 +844,10 @@ class MCModelLoader {
       if (firstElement.faces) {
         for (const [faceName, faceData] of Object.entries(firstElement.faces)) {
           if (faceData.texture) {
-            faceTextures[faceName] = this.resolveTextureReference(faceData.texture, model.textures);
+            faceTextures[faceName] = {
+              texture: this.resolveTextureReference(faceData.texture, model.textures),
+              tintindex: faceData.tintindex !== undefined ? faceData.tintindex : -1
+            };
           }
         }
       }
@@ -889,7 +892,8 @@ class MCModelLoader {
     for (const face of Object.keys(faceTextures)) {
       if (overlayData[face] && overlayData[face].texture && faceTextures[face]) {
         result[face] = {
-          base: faceTextures[face],
+          base: faceTextures[face].texture || faceTextures[face],
+          baseTintindex: faceTextures[face].tintindex !== undefined ? faceTextures[face].tintindex : -1,
           overlay: overlayData[face].texture,
           tintindex: overlayData[face].tintindex
         };
@@ -1376,7 +1380,7 @@ class MCTextureLoader {
    * 加载所有面的纹理
    * @param {Object} faceTextureRefs - 面纹理引用对象
    * @param {string} block - 方块名称
-   * @returns {Object} 面纹理对象
+   * @returns {Object} 面纹理对象，每个面包含 { texture, tintindex }
    */
   loadFaceTextures(faceTextureRefs, block) {
     const faceTextures = {
@@ -1391,12 +1395,22 @@ class MCTextureLoader {
     for (const [face, textureRef] of Object.entries(faceTextureRefs)) {
       if (!textureRef) continue;
 
-      if (typeof textureRef === 'object' && textureRef.base) {
-        const baseTexture = this.loadSingleTexture(textureRef.base);
-        faceTextures[face] = baseTexture;
+      let texture = null;
+      let tintindex = -1;
+
+      if (typeof textureRef === 'object') {
+        if (textureRef.base) {
+          texture = this.loadSingleTexture(textureRef.base);
+          tintindex = textureRef.baseTintindex !== undefined ? textureRef.baseTintindex : -1;
+        } else if (textureRef.texture) {
+          texture = this.loadSingleTexture(textureRef.texture);
+          tintindex = textureRef.tintindex !== undefined ? textureRef.tintindex : -1;
+        }
       } else {
-        faceTextures[face] = this.loadSingleTexture(textureRef);
+        texture = this.loadSingleTexture(textureRef);
       }
+
+      faceTextures[face] = { texture, tintindex };
     }
 
     return faceTextures;
