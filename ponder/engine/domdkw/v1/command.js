@@ -104,8 +104,25 @@ function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
   }
   
   // 预先设置材质属性，避免在动画循环中重复设置
-  if (!blockToFade.material.transparent) {
-    blockToFade.material.transparent = true;
+  const setMaterialTransparent = (material) => {
+    if (Array.isArray(material)) {
+      material.forEach(mat => {
+        if (mat) mat.transparent = true;
+      });
+    } else if (material) {
+      material.transparent = true;
+    }
+  };
+  
+  setMaterialTransparent(blockToFade.material);
+  
+  // 处理 overlay 材质的透明度
+  if (blockToFade.children && blockToFade.children.length > 0) {
+    blockToFade.children.forEach(child => {
+      if (child.material) {
+        setMaterialTransparent(child.material);
+      }
+    });
   }
   
   return new Promise(resolve => {
@@ -120,8 +137,30 @@ function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
       // 应用缓动函数
       const easedProgress = transition.easeInOut(progress);
       
-      // 直接计算透明度，避免使用THREE.MathUtils.lerp
-      blockToFade.material.opacity = startOpacity + (endOpacity - startOpacity) * easedProgress;
+      // 计算当前透明度
+      const currentOpacity = startOpacity + (endOpacity - startOpacity) * easedProgress;
+      
+      // 更新主材质的透明度
+      const updateMaterialOpacity = (material) => {
+        if (Array.isArray(material)) {
+          material.forEach(mat => {
+            if (mat) mat.opacity = currentOpacity;
+          });
+        } else if (material) {
+          material.opacity = currentOpacity;
+        }
+      };
+      
+      updateMaterialOpacity(blockToFade.material);
+      
+      // 更新 overlay 材质的透明度
+      if (blockToFade.children && blockToFade.children.length > 0) {
+        blockToFade.children.forEach(child => {
+          if (child.material) {
+            updateMaterialOpacity(child.material);
+          }
+        });
+      }
       
       // 渲染场景
       renderer.render(scene, camera);
@@ -1817,7 +1856,27 @@ function removeareaup(x1, y1, z1, x2, y2, z2, duration) {
       for (let i = 0; i < blockGroup.children.length; i++) {
         const blockObj = blockGroup.children[i];
         if (blockObj.material) {
-          blockObj.material.opacity = opacity;
+          if (Array.isArray(blockObj.material)) {
+            blockObj.material.forEach(mat => {
+              if (mat) mat.opacity = opacity;
+            });
+          } else {
+            blockObj.material.opacity = opacity;
+          }
+        }
+        // 更新 overlay 材质的透明度
+        if (blockObj.children) {
+          blockObj.children.forEach(child => {
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => {
+                  if (mat) mat.opacity = opacity;
+                });
+              } else {
+                child.material.opacity = opacity;
+              }
+            }
+          });
         }
       }
       

@@ -1974,6 +1974,7 @@ function preloadBaseTextures() {
   const needBlock = [];
   console.log('###########开始预加载贴图############');
 
+  // 遍历所有场景，预加载其base贴图，在这里处理无Base属性的场景
   for (let i = 0; i < window.Process.scenes.length; i++) {
     const scene = window.Process.scenes[i];
     if (!scene.base) {
@@ -2034,8 +2035,9 @@ const vanilla = (async () => {
         '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
         LoadingManager
       ),
-      mcModelLoader.loadModelData('/ponder/minecraft/models/block/1.21.8.model.json'),
-      mcBlockStateLoader.load('/ponder/minecraft/blocks_states.json'),
+      ///ponder/minecraft/models/block/1.21.8.model.json
+      mcModelLoader.loadModelData(sti.mcAssetsDataCdn + '/1.21.8/blocks_models.json'),
+      mcBlockStateLoader.load(sti.mcAssetsDataCdn + '/1.21.8/blocks_states.json'),
       mcColoringManager.loadConfig('/ponder/minecraft/coloring/grass.json')
     ]);
     
@@ -2070,8 +2072,6 @@ LoadingManager.onLoad = async () => {//主要加载步骤
   setTimeout(async () => {
       loadingDiv.style.opacity = '0';
       // 从window.Process.sense中获取默认场景索引
-      const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-      Base.Create.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
       setTimeout(async () => {
         loadingDiv.style.display = 'none';
         // 等待所有资源加载完成
@@ -2105,40 +2105,36 @@ LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
 //region BaseClass
 // BASE基础场景
 class BaseClass{
+  //向下派发，由场景播放初始化器控制
   set(sceneNum){
     const scene = window.Process.scenes[sceneNum];
     if(!scene || !scene.base) return;
     
-    switch (scene.base.default) {
-      case 'create':
-        this.Create.checkSet(sceneNum);
-        break;
-      case 'meadow':
-        this.meadow.set(scene.base.style);
-        break;
-      default:
-        console.warn(`未处理的base默认值: ${scene.base.default}`);
-        break;
+    //动态拼接函数名，转为小写
+    const funcName = scene.base.default.toLowerCase();
+    if(this[funcName]){
+      this[funcName].set(sceneNum);
+    }else{
+      console.warn(`未处理的base.set默认值: ${funcName}`);
     }
   }
-  preloadTexture(sceneNum){//预加载场景的所有贴图
+  preloadTexture(sceneNum){//预加载当前场景的所有贴图
     const scene = window.Process.scenes[sceneNum];
     if(!scene || !scene.base) return;
-    switch (scene.base.default) {
-      case 'create':
-        Base.Create.preloadTexture(window.Process.scenes[sceneNum].base.create, sceneNum);
-        break;
-      case 'meadow':
-        Base.meadow.preloadTexture(window.Process.scenes[sceneNum].base.style);
-        break;
-      default:
-        console.warn(`未处理的base默认值: ${window.Process.scenes[sceneNum].base.default}`);
-        break;
+    //根据base.default调用对应的预加载函数
+    const funcName = scene.base.default.toLowerCase();
+    if(this[funcName]){
+      this[funcName].preloadTexture(sceneNum);
+    }else{
+      console.warn(`未处理的base.preloadTexture默认值: ${funcName}`);
     }
   }
   
-  Create = {
-    preloadTexture:(baseSetting, sceneNum) =>{//预加载场景的所有贴图
+  create = {
+    preloadTexture:(sceneNum) =>{//预加载场景的所有贴图
+      const baseSetting = window.Process.scenes[sceneNum].base.create;
+      if(!baseSetting || !baseSetting.style) return;
+      //main -style
       switch (baseSetting.style) {
         case '5x5chessboard':
           // 尝试从精灵图中加载雪和粘土块
@@ -2155,7 +2151,7 @@ class BaseClass{
           break;
       }
     },
-    checkSet:(sceneNum) =>{//检查并创建CreateBase场景
+    set:(sceneNum) =>{//检查并创建CreateBase场景
       if(!window.Process.scenes[sceneNum].base) return;
       const baseSetting = window.Process.scenes[sceneNum].base.create;
       if(!baseSetting) return;
@@ -2183,7 +2179,9 @@ class BaseClass{
     }
   }
   meadow = {
-    preloadTexture:(style) =>{
+    preloadTexture:(sceneNum) =>{
+      const style = window.Process.scenes[sceneNum].base.style;
+      if(!style) return;
       const {grass_block_surface:surface=true} = style;
       
       mcTextureLoader.getFaceTextures('minecraft:grass_block');
@@ -2191,7 +2189,9 @@ class BaseClass{
       
       console.log(`[PBT=>Base.meadow] 预加载贴图: grass_block, dirt (surface=${surface})`);
     },
-    set:(style) =>{
+    set:(sceneNum) =>{
+      const style = window.Process.scenes[sceneNum].base.style;
+      if(!style) return;
       const {size={x:4,y:1,z:4}, offset={x:0,y:0,z:0}, 'grass_block-surface':surface=true} = style;
       
       // 收集所有方块放置的Promise

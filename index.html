@@ -216,9 +216,20 @@
             </div>
           </div>
           <div class="setting-div Ponder">
+            <div class="setting-div-row">
+            <div id="mc-assets-data-cdn" class="setting-item" data-type="select">
+              <span class="setting-label">Minecraft资产数据CDN</span>
+              <span class="setting-remind">需要引擎支持</span>
+              <select name="mc-assets-data-cdn-sourse">
+                <option value="https://jsd.onmicrosoft.cn/npm/minecraft-assets/minecraft-assets/data" selected>jsd.onmicrosoft.cn</option>
+                <option value="https://cdn.jsdelivr.net/npm/minecraft-assets/minecraft-assets/data">cdn.jsdelivr.net</option>
+                <option value="https://unpkg.com/minecraft-assets/minecraft-assets/data">unpkg.com</option>
+              </select>
+            </div>
             <div id="sti-showConsole" class="setting-item checkbox" data-type="checkbox">
               <span class="setting-label">显示控制台</span>
               <label class="canClick"><input class="canClick" type="checkbox"></label>
+            </div>
             </div>
           </div>
         </div>
