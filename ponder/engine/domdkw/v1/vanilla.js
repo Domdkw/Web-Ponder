@@ -1514,7 +1514,7 @@ class MCColoringManager {
           continue;
         }
         loadedCount++;
-        mcmpcp.rangeblock.width = (loadedCount/willColorBlockList.length)*100+'%';
+        mcmpcp.rangeblock.style.width = (loadedCount/willColorBlockList.length)*100+'%';
 
         const data = await response.json();
         this.coloringData.set(block.type, data);
