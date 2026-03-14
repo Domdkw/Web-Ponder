@@ -1492,6 +1492,7 @@ class MCColoringManager {
     this.coloringData = new Map();
     this.currentBiome = 'meadow';
     this.isLoaded = false;
+    this.needColorBlockList = ['grassblock']
   }
 
   /**
@@ -1499,28 +1500,34 @@ class MCColoringManager {
    * @param {string} configPath - 配置文件路径
    * @returns {Promise<boolean>} 加载是否成功
    */
-  async loadConfig(configPath) {
-    try {
-      const response = await fetch(configPath);
-      if (!response.ok) {
-        console.warn(`[MCColoringManager] 无法加载着色配置: ${configPath}`);
+  preloadConfig(willColorBlockList) {
+    const mcmpcp = SNLB('mcmpcp',true);
+    mcmpcp.loadinfo.textContent = `正在加载 ${willColorBlockList.length} 个方块的着色配置...`;
+    willColorBlockList.forEach(coloringBlock => {
+        try {
+          // 从服务器加载着色配置文件, 文件名与方块类型相同
+        const response = fetch(`/ponder/minecraft/coloring/${coloringBlock}.json`);
+        if (!response.ok) {
+          console.warn(`[MCColoringManager] 无法加载着色配置: ${coloringBlock}`);
+          return false;
+        }
+        
+        const data = response.json();
+        this.coloringData.set(coloringBlock, data);
+        
+        if (data.default) {
+          this.currentBiome = data.default;
+        }
+        
+        this.isLoaded = true;
+        console.log(`[MCColoringManager] 着色配置加载成功，默认生物群系: ${this.currentBiome}`);
+        return true;
+      } catch (error) {
+        console.error(`[MCColoringManager] 加载着色配置失败:`, error);
         return false;
       }
-      
-      const data = await response.json();
-      this.coloringData.set('grass', data);
-      
-      if (data.default) {
-        this.currentBiome = data.default;
-      }
-      
-      this.isLoaded = true;
-      console.log(`[MCColoringManager] 着色配置加载成功，默认生物群系: ${this.currentBiome}`);
-      return true;
-    } catch (error) {
-      console.error(`[MCColoringManager] 加载着色配置失败:`, error);
-      return false;
-    }
+
+    });
   }
 
   /**
@@ -1966,9 +1973,13 @@ const languageManager = new LanguageManager();
 // 资源加载与管理
 // ========================================
 
-//region preloadBaseTextures
-// 预加载贴图
-function preloadBaseTextures() {
+//region preloadBlockTextures
+/**
+ * 预加载贴图，包括需要着色的方块
+ * 加载在一拿到流程时，在所有片段播放前，进行全流程中的函数查找
+ * @returns {Promise<void>} 所有纹理加载完成后的 Promise
+ */
+async function preloadBlockTextures() {
   //动态检测需要预加载的方块
   const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
   const needBlock = [];
@@ -1995,7 +2006,7 @@ function preloadBaseTextures() {
 
         for (const func of blockFunction) {
           if (!line.includes(func)) continue;
-
+          // 提取方块ID
           const match = line.match(new RegExp(`${func}\\s*\\(\\s*'([^']+)'`));
           if (match?.[1] && !needBlock.includes(match[1])) {
             needBlock.push(match[1]);
@@ -2006,6 +2017,8 @@ function preloadBaseTextures() {
   }
 
   console.log(`流程指定方块数量: ${needBlock.length}`);
+  const needColorBlockList = mcColoringManager.needColorBlockList;
+  const willColorBlockList = [];
 
   for (const block of needBlock) {
     const textures = mcTextureLoader.getFaceTextures(block);
@@ -2014,7 +2027,13 @@ function preloadBaseTextures() {
     } else {
       console.warn(`未能加载纹理: ${block}`);
     }
+    // 检查是否需要着色
+    if (needColorBlockList.includes(block)) {
+      willColorBlockList.push(block);
+    }
   }
+  // 预加载着色配置
+  mcColoringManager.preloadConfig(willColorBlockList);
 
   console.log('###############预加载完成###############');
 
@@ -2038,13 +2057,12 @@ const vanilla = (async () => {
       ///ponder/minecraft/models/block/1.21.8.model.json
       mcModelLoader.loadModelData(sti.mcAssetsDataCdn + '/1.21.8/blocks_models.json'),
       mcBlockStateLoader.load(sti.mcAssetsDataCdn + '/1.21.8/blocks_states.json'),
-      mcColoringManager.loadConfig('/ponder/minecraft/coloring/grass.json')
     ]);
     
     languageManager.preloadAllLanguageData();
     
     if (mcModelLoader.modelData) {
-      preloadBaseTextures();
+      preloadBlockTextures();
     } else {
       console.warn('[Vanilla] 模型数据未加载成功，跳过纹理预加载');
     }

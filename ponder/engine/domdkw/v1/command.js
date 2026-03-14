@@ -12,7 +12,7 @@ function idle(duration) {
  * @param {string} biome - 生物群系名称，可选
  * @returns {THREE.Color} 颜色对象
  */
-function getGrassColor(blockType = 'grass', biome = null) {
+function getGrassColor(blockType = 'grassblock', biome = null) {
   if (typeof mcColoringManager !== 'undefined') {
     const color = mcColoringManager.getColor(blockType, biome);
     if (color) return color;

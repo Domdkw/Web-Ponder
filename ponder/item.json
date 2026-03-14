@@ -1,7 +1,7 @@
 [
     {
         "name":"onlypanorama",
-        "icon":"/ponder/minecraft/item/barrier.png",
+        "icon":"https://cdn.jsdelivr.net/npm/minecraft-assets@1.17.0/minecraft-assets/data/1.21.8/items/barrier.png",
         "process":"/ponder/process/onlypanorama.null",
         "description":"OnlyPanorama",
         "boot":"/ponder/engine/domdkw/onlypanorama.boot.js"
