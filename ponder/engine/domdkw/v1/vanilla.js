@@ -1490,7 +1490,7 @@ class MCTextureLoader {
 class MCColoringManager {
   constructor() {
     this.coloringData = new Map();
-    this.currentBiome = 'meadow';
+    this.currentBiome = null;
     this.isLoaded = false;
     this.needColorBlockList = ['minecraft:grass_block']
   }
@@ -1501,23 +1501,25 @@ class MCColoringManager {
    * @returns {Promise<boolean>} 加载是否成功
    */
   async preloadConfig(willColorBlockList) {
+    let loadedCount = 0;
     const mcmpcp = SNLB('mcmpcp',true);
     mcmpcp.loadinfo.textContent = `正在加载 ${willColorBlockList.length} 个方块的着色配置...`;
     for (const coloringBlock of willColorBlockList) {
         try {
-          const block = {namespace: coloringBlock.split(':')[0], type: coloringBlock.split(':')[1]};
-          // 从服务器加载着色配置文件, 文件名与方块类型相同
+        const block = {namespace: coloringBlock.split(':')[0], type: coloringBlock.split(':')[1]};
+        // 从服务器加载着色配置文件, 文件名与方块类型相同
         const response = await fetch(`/ponder/${block.namespace}/coloring/${block.type}.json`);
         if (!response.ok) {
           console.warn(`[MCColoringManager] 无法加载着色配置: ${block.type}`);
           continue;
         }
+        loadedCount++;
+        mcmpcp.rangeblock.width = (loadedCount/willColorBlockList.length)*100+'%';
+
         const data = await response.json();
         this.coloringData.set(block.type, data);
         
-        if (data.default) {
-          this.currentBiome = data.default;
-        }
+        if(data.default) this.currentBiome = data.default;
         
         this.isLoaded = true;
         console.log(`[MCColoringManager] 着色配置加载成功，默认生物群系: ${this.currentBiome}`);
@@ -1537,8 +1539,7 @@ class MCColoringManager {
   getColor(blockType, biome = null) {
     const config = this.coloringData.get(blockType);
     if (!config) return null;
-
-    const targetBiome = biome || config.default || this.currentBiome;
+    const targetBiome = biome || this.currentBiome || config.default;
     const colorHex = config.biomes?.[targetBiome];
 
     if (!colorHex) {
@@ -1564,20 +1565,31 @@ class MCColoringManager {
   }
 
   /**
-   * 设置当前生物群系
-   * @param {string} biome - 生物群系名称
+   * 设置当前生物群系到currentBiome
    */
-  setBiome(biome) {
-    this.currentBiome = biome;
-    console.log(`[MCColoringManager] 当前生物群系已设置为: ${biome}`);
+  setBiome(sceneNum) {
+    let b = this.getBiome(sceneNum)
+    if (b){
+      this.currentBiome = b;
+      console.log(`[MCColoringManager] setBiome: ${this.currentBiome}`)
+    };
   }
 
   /**
-   * 获取当前生物群系
+   * 获取当前场景生物群系，内部对流程进行检查
+   * 最小单位为场景，若场景未设置群系，则返回全局群系
    * @returns {string} 当前生物群系名称
    */
-  getBiome() {
-    return this.currentBiome;
+  getBiome(sceneNum) {
+    let biome, gbiome;
+    if (window.Process.global) gbiome = window.Process.global.biome || null;
+    if (sceneNum){
+      //如果有sceneNum，获取scene[i]设置的群系
+      let sbiome = window.Process.scene[sceneNum].biome || null;
+      if (sbiome) gbiome = sbiome;
+    }
+    if (gbiome){biome = gbiome};
+    return biome;
   }
 
   /**
@@ -2462,6 +2474,10 @@ function initFragmentPlay(){//初始化每个场景的片段播放，每个场�
   // 初始化场景基础
   Base.set(playState.currentScene);
 
+  // 设置当前生物群系到currentBiome
+  mcColoringManager.setBiome(playState.currentScene);
+
+
   // 初始化播放状态
   playState.isPlaying = false;
   playState.isStopped = true;
@@ -2641,6 +2657,9 @@ function switchToScene(sceneNum) {
   
   //setbase
   Base.set(sceneNum);
+
+  // 设置当前生物群系到currentBiome
+  mcColoringManager.setBiome(sceneNum);
   
   // 重置进度条
   ProgressBar.reset();
