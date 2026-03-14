@@ -1492,7 +1492,7 @@ class MCColoringManager {
     this.coloringData = new Map();
     this.currentBiome = 'meadow';
     this.isLoaded = false;
-    this.needColorBlockList = ['grassblock']
+    this.needColorBlockList = ['minecraft:grass_block']
   }
 
   /**
@@ -1500,20 +1500,20 @@ class MCColoringManager {
    * @param {string} configPath - 配置文件路径
    * @returns {Promise<boolean>} 加载是否成功
    */
-  preloadConfig(willColorBlockList) {
+  async preloadConfig(willColorBlockList) {
     const mcmpcp = SNLB('mcmpcp',true);
     mcmpcp.loadinfo.textContent = `正在加载 ${willColorBlockList.length} 个方块的着色配置...`;
-    willColorBlockList.forEach(coloringBlock => {
+    for (const coloringBlock of willColorBlockList) {
         try {
+          const block = {namespace: coloringBlock.split(':')[0], type: coloringBlock.split(':')[1]};
           // 从服务器加载着色配置文件, 文件名与方块类型相同
-        const response = fetch(`/ponder/minecraft/coloring/${coloringBlock}.json`);
+        const response = await fetch(`/ponder/${block.namespace}/coloring/${block.type}.json`);
         if (!response.ok) {
-          console.warn(`[MCColoringManager] 无法加载着色配置: ${coloringBlock}`);
-          return false;
+          console.warn(`[MCColoringManager] 无法加载着色配置: ${block.type}`);
+          continue;
         }
-        
-        const data = response.json();
-        this.coloringData.set(coloringBlock, data);
+        const data = await response.json();
+        this.coloringData.set(block.type, data);
         
         if (data.default) {
           this.currentBiome = data.default;
@@ -1521,13 +1521,11 @@ class MCColoringManager {
         
         this.isLoaded = true;
         console.log(`[MCColoringManager] 着色配置加载成功，默认生物群系: ${this.currentBiome}`);
-        return true;
       } catch (error) {
         console.error(`[MCColoringManager] 加载着色配置失败:`, error);
-        return false;
       }
 
-    });
+    }
   }
 
   /**
@@ -2036,6 +2034,7 @@ async function preloadBlockTextures() {
   mcColoringManager.preloadConfig(willColorBlockList);
 
   console.log('###############预加载完成###############');
+  console.log('需要着色的方块数量:', willColorBlockList);
 
   texturesLoaded = true;
   console.log('所有贴图预加载完成');
