@@ -13,10 +13,9 @@ function idle(duration) {
  * @returns {THREE.Color} 颜色对象
  */
 function getGrassColor(blockType = 'grassblock', biome = null) {
-  if (typeof mcColoringManager !== 'undefined') {
-    const color = mcColoringManager.getColor(blockType, biome);
-    if (color) return color;
-  }
+  if (typeof mcColoringManager === 'undefined') return new THREE.Color(0x83bb6d);
+  const color = mcColoringManager.getColor(blockType, biome);
+  if (color) return color;
   return new THREE.Color(0x83bb6d);
 }
 

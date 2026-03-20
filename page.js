@@ -26,6 +26,7 @@ if(LS_accept && localStorage.getItem('sti')){
       case 'mc-assets-data-cdn':sti.mcAssetsDataCdn = i.value;break; // Minecraft资产数据CDN
     }
   });
+  if (!sti.mcAssetsDataCdn) sti.mcAssetsDataCdn = 'https://jsd.onmicrosoft.cn/npm/minecraft-assets/minecraft-assets/data';
 }
 
 // 兼容性检测立即执行函数
