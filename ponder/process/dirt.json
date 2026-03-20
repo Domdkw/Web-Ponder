@@ -19,7 +19,7 @@
   {
     "description":"dirt is a block that is found in the overworld.",
     "base":{
-      "default":"create",
+      "default":"Create",
       "create":{
         "style":"5x5chessboard",
         "offset":{

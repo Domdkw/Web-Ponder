@@ -3,12 +3,13 @@ let LS_accept = localStorage.getItem('LS_accept') || false;
 //sti let start
 let sti = {
   moreOoops: false,
-  panorama: "none", // 存储用户选择的全景图
-  imgMirror: "local", // 存储用户选择的全景图镜像源
-  ooops_lang: "auto", // 存储用户选择的ooops语言
-  audio_file: 'random', // 存储音频文件设置
-  showConsole: true, // 存储用户选择的显示控制台选项
-  panorama_fps: "30" // 存储用户选择的全景图帧数限制
+  panorama: "none", // 全景图
+  imgMirror: "local", // 全景图镜像源
+  ooops_lang: "auto", // ooops语言
+  audio_file: 'random', // 音频文件设置
+  showConsole: true, // 显示控制台选项
+  panorama_fps: "30", // 全景图帧数限制
+  mcAssetsDataCdn: "https://jsd.onmicrosoft.cn/npm/minecraft-assets/minecraft-assets/data" // Minecraft资产数据CDN
 };
 //sti let end
 //自动应用LS信息25.7.31
@@ -17,13 +18,15 @@ if(LS_accept && localStorage.getItem('sti')){
   stiObj.forEach(function(i){//单个键值
     switch(i.id){
       case 'sti-moreooops':sti.moreOoops = i.value;break;
-      case 'sti-panorama':sti.panorama = i.value;break; // 加载用户选择的全景图
-      case 'sti-imgMirror':sti.imgMirror = i.value;break; // 加载用户选择的全景图镜像源
-      case 'sti-ooops-lang':sti.ooops_lang = i.value;break; // 加载用户选择的ooops语言
-      case 'sti-showConsole':sti.showConsole = i.value;break; // 加载用户选择的显示控制台选项
-      case 'sti-panorama-fps':sti.panorama_fps = i.value;break; // 加载用户选择的全景图帧数限制
+      case 'sti-panorama':sti.panorama = i.value;break; // 全景图
+      case 'sti-imgMirror':sti.imgMirror = i.value;break; // 全景图镜像源
+      case 'sti-ooops-lang':sti.ooops_lang = i.value;break; // ooops语言
+      case 'sti-showConsole':sti.showConsole = i.value;break; // 显示控制台选项
+      case 'sti-panorama-fps':sti.panorama_fps = i.value;break; // 全景图帧数限制
+      case 'mc-assets-data-cdn':sti.mcAssetsDataCdn = i.value;break; // Minecraft资产数据CDN
     }
   });
+  if (!sti.mcAssetsDataCdn) sti.mcAssetsDataCdn = 'https://jsd.onmicrosoft.cn/npm/minecraft-assets/minecraft-assets/data';
 }
 
 // 兼容性检测立即执行函数
@@ -547,6 +550,11 @@ const options = {
         sti.panorama_fps = value;
         terminal.innerHTML = '全景图帧数限制已更改为 ' + sti.panorama_fps + ' 帧';
       }
+      // 如果是Minecraft资产数据CDN的选项，需要更新全局变量
+      if(sti.id === 'mc-assets-data-cdn') {
+        sti.mcAssetsDataCdn = sti.querySelector('select').value;
+        terminal.innerHTML = 'Minecraft资产数据CDN已更改为: ' + sti.mcAssetsDataCdn;
+      }
         break;
     }
   }
@@ -585,26 +593,12 @@ const options = {
       case 'select':
         const sISelect = sti.querySelector('select');
         sISelect.value = i.value;
-        // 如果是指定全景图的选项，需要更新全局变量
-        if(i.id === 'sti-panorama') {
-          sti.panorama = i.value;
-        }
-        // 如果是指定ooops语言的选项，需要更新全局变量
-        if(i.id === 'sti-ooops-lang') {
-          sti.ooops_lang = i.value;
-        }
-        // 如果是指定音频文件的选项，需要更新全局变量
-        if(i.id === 'sti-audio-file') {
-          sti.audio_file = i.value;
-        }
-        // 如果是显示控制台的选项，需要更新全局变量
-        if(i.id === 'sti-showConsole') {
-          sti.showConsole = i.value;
-        }
-        // 如果是全景图帧数限制的选项，需要更新全局变量
-        if(i.id === 'sti-panorama-fps') {
-          sti.panorama_fps = i.value;
-        }
+        if(i.id === 'sti-panorama') {sti.panorama = i.value;}
+        if(i.id === 'sti-ooops-lang') {sti.ooops_lang = i.value;}
+        if(i.id === 'sti-audio-file') {sti.audio_file = i.value;}
+        if(i.id === 'sti-showConsole') {sti.showConsole = i.value;}
+        if(i.id === 'sti-panorama-fps') {sti.panorama_fps = i.value;}
+        if(i.id === 'mc-assets-data-cdn') {sti.mcAssetsDataCdn = i.value;}
       break;
     }
   });
@@ -642,6 +636,11 @@ const options = {
       // 如果是全景图帧数限制的选项，需要更新全局变量
       if(sI.id === 'sti-panorama-fps') {
         sti.panorama_fps = value;
+      }
+      // 如果是Minecraft资产数据CDN的选项，需要更新全局变量
+      if(sI.id === 'mc-assets-data-cdn') {
+        sti.mcAssetsDataCdn = value;
+        terminal.innerHTML = 'Minecraft资产数据CDN已更改为: ' + value;
       }
     break;
     }

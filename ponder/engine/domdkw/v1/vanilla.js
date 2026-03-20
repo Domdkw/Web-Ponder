@@ -844,7 +844,10 @@ class MCModelLoader {
       if (firstElement.faces) {
         for (const [faceName, faceData] of Object.entries(firstElement.faces)) {
           if (faceData.texture) {
-            faceTextures[faceName] = this.resolveTextureReference(faceData.texture, model.textures);
+            faceTextures[faceName] = {
+              texture: this.resolveTextureReference(faceData.texture, model.textures),
+              tintindex: faceData.tintindex !== undefined ? faceData.tintindex : -1
+            };
           }
         }
       }
@@ -889,7 +892,8 @@ class MCModelLoader {
     for (const face of Object.keys(faceTextures)) {
       if (overlayData[face] && overlayData[face].texture && faceTextures[face]) {
         result[face] = {
-          base: faceTextures[face],
+          base: faceTextures[face].texture || faceTextures[face],
+          baseTintindex: faceTextures[face].tintindex !== undefined ? faceTextures[face].tintindex : -1,
           overlay: overlayData[face].texture,
           tintindex: overlayData[face].tintindex
         };
@@ -1376,7 +1380,7 @@ class MCTextureLoader {
    * 加载所有面的纹理
    * @param {Object} faceTextureRefs - 面纹理引用对象
    * @param {string} block - 方块名称
-   * @returns {Object} 面纹理对象
+   * @returns {Object} 面纹理对象，每个面包含 { texture, tintindex }
    */
   loadFaceTextures(faceTextureRefs, block) {
     const faceTextures = {
@@ -1391,12 +1395,22 @@ class MCTextureLoader {
     for (const [face, textureRef] of Object.entries(faceTextureRefs)) {
       if (!textureRef) continue;
 
-      if (typeof textureRef === 'object' && textureRef.base) {
-        const baseTexture = this.loadSingleTexture(textureRef.base);
-        faceTextures[face] = baseTexture;
+      let texture = null;
+      let tintindex = -1;
+
+      if (typeof textureRef === 'object') {
+        if (textureRef.base) {
+          texture = this.loadSingleTexture(textureRef.base);
+          tintindex = textureRef.baseTintindex !== undefined ? textureRef.baseTintindex : -1;
+        } else if (textureRef.texture) {
+          texture = this.loadSingleTexture(textureRef.texture);
+          tintindex = textureRef.tintindex !== undefined ? textureRef.tintindex : -1;
+        }
       } else {
-        faceTextures[face] = this.loadSingleTexture(textureRef);
+        texture = this.loadSingleTexture(textureRef);
       }
+
+      faceTextures[face] = { texture, tintindex };
     }
 
     return faceTextures;
@@ -1466,6 +1480,142 @@ class MCTextureLoader {
       textures: this.textureCache.size,
       models: this.blockModelCache.size
     };
+  }
+}
+
+// ========================================
+// MCColoringManager 类 - 方块着色管理
+// ========================================
+//region MCColoringManager
+class MCColoringManager {
+  constructor() {
+    this.coloringData = new Map();
+    this.currentBiome = null;
+    this.isLoaded = false;
+    this.needColorBlockList = ['minecraft:grass_block']
+  }
+
+  /**
+   * 加载着色配置文件
+   * @param {string} configPath - 配置文件路径
+   * @returns {Promise<boolean>} 加载是否成功
+   */
+  async preloadConfig(willColorBlockList) {
+    let loadedCount = 0;
+    const mcmpcp = SNLB('mcmpcp',true);
+    mcmpcp.loadinfo.textContent = `正在加载 ${willColorBlockList.length} 个方块的着色配置...`;
+    for (const coloringBlock of willColorBlockList) {
+        try {
+        const block = {namespace: coloringBlock.split(':')[0], type: coloringBlock.split(':')[1]};
+        // 从服务器加载着色配置文件, 文件名与方块类型相同
+        const response = await fetch(`/ponder/${block.namespace}/coloring/${block.type}.json`);
+        if (!response.ok) {
+          console.warn(`[MCColoringManager] 无法加载着色配置: ${block.type}`);
+          continue;
+        }
+        loadedCount++;
+        mcmpcp.rangeblock.style.width = (loadedCount/willColorBlockList.length)*100+'%';
+
+        const data = await response.json();
+        this.coloringData.set(block.type, data);
+        
+        if(data.default) this.currentBiome = data.default;
+        
+        this.isLoaded = true;
+        console.log(`[MCColoringManager] 着色配置加载成功，默认生物群系: ${this.currentBiome}`);
+      } catch (error) {
+        console.error(`[MCColoringManager] 加载着色配置失败:`, error);
+      }
+
+    }
+  }
+
+  /**
+   * 获取指定方块类型在当前生物群系下的颜色
+   * @param {string} blockType - 方块类型，如 'grass'
+   * @param {string} biome - 生物群系名称（可选，默认使用当前生物群系）
+   * @returns {THREE.Color|null} 颜色对象
+   */
+  getColor(blockType, biome = null) {
+    const config = this.coloringData.get(blockType);
+    if (!config) return null;
+    const targetBiome = biome || this.currentBiome || config.default;
+    const colorHex = config.biomes?.[targetBiome];
+
+    if (!colorHex) {
+      console.warn(`[MCColoringManager] 未找到生物群系 "${targetBiome}" 的颜色配置`);
+      return null;
+    }
+
+    return new THREE.Color(colorHex);
+  }
+
+  /**
+   * 获取颜色的十六进制值
+   * @param {string} blockType - 方块类型
+   * @param {string} biome - 生物群系名称（可选）
+   * @returns {string|null} 十六进制颜色字符串，如 "#83bb6d"
+   */
+  getColorHex(blockType, biome = null) {
+    const config = this.coloringData.get(blockType);
+    if (!config) return null;
+
+    const targetBiome = biome || config.default || this.currentBiome;
+    return config.biomes?.[targetBiome] || null;
+  }
+
+  /**
+   * 设置当前生物群系到currentBiome
+   */
+  setBiome(sceneNum) {
+    let b = this.getBiome(sceneNum)
+    if (b){
+      this.currentBiome = b;
+      console.log(`[MCColoringManager] setBiome: ${this.currentBiome}`)
+    };
+  }
+
+  /**
+   * 获取当前场景生物群系，内部对流程进行检查
+   * 最小单位为场景，若场景未设置群系，则返回全局群系
+   * @returns {string} 当前生物群系名称
+   */
+  getBiome(sceneNum) {
+    let biome, gbiome;
+    if (window.Process.setting.global) gbiome = window.Process.setting.global.biome || null;
+    if (sceneNum){
+      //如果有sceneNum，获取scene[i]设置的群系
+      let sbiome = window.Process.setting.scene[sceneNum].biome || null;
+      if (sbiome) gbiome = sbiome;
+    }
+    if (gbiome){biome = gbiome};
+    return biome;
+  }
+
+  /**
+   * 添加或更新生物群系颜色
+   * @param {string} blockType - 方块类型
+   * @param {string} biome - 生物群系名称
+   * @param {string} colorHex - 十六进制颜色值
+   */
+  setBiomeColor(blockType, biome, colorHex) {
+    let config = this.coloringData.get(blockType);
+    if (!config) {
+      config = { default: biome, biomes: {} };
+      this.coloringData.set(blockType, config);
+    }
+    config.biomes[biome] = colorHex;
+  }
+
+  /**
+   * 获取所有可用的生物群系列表
+   * @param {string} blockType - 方块类型
+   * @returns {Array<string>} 生物群系名称数组
+   */
+  getAvailableBiomes(blockType) {
+    const config = this.coloringData.get(blockType);
+    if (!config || !config.biomes) return [];
+    return Object.keys(config.biomes);
   }
 }
 
@@ -1833,14 +1983,19 @@ const languageManager = new LanguageManager();
 // 资源加载与管理
 // ========================================
 
-//region preloadBaseTextures
-// 预加载贴图
-function preloadBaseTextures() {
+//region preloadBlockTextures
+/**
+ * 预加载贴图，包括需要着色的方块
+ * 加载在一拿到流程时，在所有片段播放前，进行全流程中的函数查找
+ * @returns {Promise<void>} 所有纹理加载完成后的 Promise
+ */
+async function preloadBlockTextures() {
   //动态检测需要预加载的方块
   const blockFunction = ['setblock', 'setblockfall', 'fill', 'fillfall'];
   const needBlock = [];
   console.log('###########开始预加载贴图############');
 
+  // 遍历所有场景，预加载其base贴图，在这里处理无Base属性的场景
   for (let i = 0; i < window.Process.scenes.length; i++) {
     const scene = window.Process.scenes[i];
     if (!scene.base) {
@@ -1861,7 +2016,7 @@ function preloadBaseTextures() {
 
         for (const func of blockFunction) {
           if (!line.includes(func)) continue;
-
+          // 提取方块ID
           const match = line.match(new RegExp(`${func}\\s*\\(\\s*'([^']+)'`));
           if (match?.[1] && !needBlock.includes(match[1])) {
             needBlock.push(match[1]);
@@ -1872,6 +2027,8 @@ function preloadBaseTextures() {
   }
 
   console.log(`流程指定方块数量: ${needBlock.length}`);
+  const needColorBlockList = mcColoringManager.needColorBlockList;
+  const willColorBlockList = [];
 
   for (const block of needBlock) {
     const textures = mcTextureLoader.getFaceTextures(block);
@@ -1880,9 +2037,16 @@ function preloadBaseTextures() {
     } else {
       console.warn(`未能加载纹理: ${block}`);
     }
+    // 检查是否需要着色
+    if (needColorBlockList.includes(block)) {
+      willColorBlockList.push(block);
+    }
   }
+  // 预加载着色配置
+  mcColoringManager.preloadConfig(willColorBlockList);
 
   console.log('###############预加载完成###############');
+  console.log('需要着色的方块数量:', willColorBlockList);
 
   texturesLoaded = true;
   console.log('所有贴图预加载完成');
@@ -1901,14 +2065,15 @@ const vanilla = (async () => {
         '/ponder/minecraft/textures/block/1.21.8.basic.atlas.png',
         LoadingManager
       ),
-      mcModelLoader.loadModelData('/ponder/minecraft/models/block/1.21.8.model.json'),
-      mcBlockStateLoader.load('/ponder/minecraft/blocks_states.json')
+      ///ponder/minecraft/models/block/1.21.8.model.json
+      mcModelLoader.loadModelData(sti.mcAssetsDataCdn + '/1.21.8/blocks_models.json'),
+      mcBlockStateLoader.load(sti.mcAssetsDataCdn + '/1.21.8/blocks_states.json'),
     ]);
     
     languageManager.preloadAllLanguageData();
     
     if (mcModelLoader.modelData) {
-      preloadBaseTextures();
+      preloadBlockTextures();
     } else {
       console.warn('[Vanilla] 模型数据未加载成功，跳过纹理预加载');
     }
@@ -1936,8 +2101,6 @@ LoadingManager.onLoad = async () => {//主要加载步骤
   setTimeout(async () => {
       loadingDiv.style.opacity = '0';
       // 从window.Process.sense中获取默认场景索引
-      const defaultSceneIndex = window.Process.sense && window.Process.sense.length > 0 ? window.Process.sense[0] : 0;
-      Base.Create.checkSet(defaultSceneIndex); // 使用sense中的第一个场景索引作为默认场景
       setTimeout(async () => {
         loadingDiv.style.display = 'none';
         // 等待所有资源加载完成
@@ -1971,40 +2134,36 @@ LoadingManager.onError = (url) => {console.error(`加载错误: ${url}`);};
 //region BaseClass
 // BASE基础场景
 class BaseClass{
+  //向下派发，由场景播放初始化器控制
   set(sceneNum){
     const scene = window.Process.scenes[sceneNum];
     if(!scene || !scene.base) return;
     
-    switch (scene.base.default) {
-      case 'create':
-        this.Create.checkSet(sceneNum);
-        break;
-      case 'meadow':
-        this.meadow.set(scene.base.style);
-        break;
-      default:
-        console.warn(`未处理的base默认值: ${scene.base.default}`);
-        break;
+    //动态拼接函数名，转为小写
+    const funcName = scene.base.default.toLowerCase();
+    if(this[funcName]){
+      this[funcName].set(sceneNum);
+    }else{
+      console.warn(`未处理的base.set默认值: ${funcName}`);
     }
   }
-  preloadTexture(sceneNum){//预加载场景的所有贴图
+  preloadTexture(sceneNum){//预加载当前场景的所有贴图
     const scene = window.Process.scenes[sceneNum];
     if(!scene || !scene.base) return;
-    switch (scene.base.default) {
-      case 'create':
-        Base.Create.preloadTexture(window.Process.scenes[sceneNum].base.create, sceneNum);
-        break;
-      case 'meadow':
-        Base.meadow.preloadTexture(window.Process.scenes[sceneNum].base.style);
-        break;
-      default:
-        console.warn(`未处理的base默认值: ${window.Process.scenes[sceneNum].base.default}`);
-        break;
+    //根据base.default调用对应的预加载函数
+    const funcName = scene.base.default.toLowerCase();
+    if(this[funcName]){
+      this[funcName].preloadTexture(sceneNum);
+    }else{
+      console.warn(`未处理的base.preloadTexture默认值: ${funcName}`);
     }
   }
   
-  Create = {
-    preloadTexture:(baseSetting, sceneNum) =>{//预加载场景的所有贴图
+  create = {
+    preloadTexture:(sceneNum) =>{//预加载场景的所有贴图
+      const baseSetting = window.Process.scenes[sceneNum].base.create;
+      if(!baseSetting || !baseSetting.style) return;
+      //main -style
       switch (baseSetting.style) {
         case '5x5chessboard':
           // 尝试从精灵图中加载雪和粘土块
@@ -2021,7 +2180,7 @@ class BaseClass{
           break;
       }
     },
-    checkSet:(sceneNum) =>{//检查并创建CreateBase场景
+    set:(sceneNum) =>{//检查并创建CreateBase场景
       if(!window.Process.scenes[sceneNum].base) return;
       const baseSetting = window.Process.scenes[sceneNum].base.create;
       if(!baseSetting) return;
@@ -2049,7 +2208,9 @@ class BaseClass{
     }
   }
   meadow = {
-    preloadTexture:(style) =>{
+    preloadTexture:(sceneNum) =>{
+      const style = window.Process.scenes[sceneNum].base.style;
+      if(!style) return;
       const {grass_block_surface:surface=true} = style;
       
       mcTextureLoader.getFaceTextures('minecraft:grass_block');
@@ -2057,7 +2218,9 @@ class BaseClass{
       
       console.log(`[PBT=>Base.meadow] 预加载贴图: grass_block, dirt (surface=${surface})`);
     },
-    set:(style) =>{
+    set:(sceneNum) =>{
+      const style = window.Process.scenes[sceneNum].base.style;
+      if(!style) return;
       const {size={x:4,y:1,z:4}, offset={x:0,y:0,z:0}, 'grass_block-surface':surface=true} = style;
       
       // 收集所有方块放置的Promise
@@ -2311,6 +2474,10 @@ function initFragmentPlay(){//初始化每个场景的片段播放，每个场�
   // 初始化场景基础
   Base.set(playState.currentScene);
 
+  // 设置当前生物群系到currentBiome
+  mcColoringManager.setBiome(playState.currentScene);
+
+
   // 初始化播放状态
   playState.isPlaying = false;
   playState.isStopped = true;
@@ -2490,6 +2657,9 @@ function switchToScene(sceneNum) {
   
   //setbase
   Base.set(sceneNum);
+
+  // 设置当前生物群系到currentBiome
+  mcColoringManager.setBiome(sceneNum);
   
   // 重置进度条
   ProgressBar.reset();
@@ -3503,5 +3673,7 @@ const mcTextureLoader = new MCTextureLoader();
 const mcModelLoader = new MCModelLoader();
 // 全局方块状态加载器实例
 const mcBlockStateLoader = new MCBlockStateLoader();
+// 全局着色管理器实例
+const mcColoringManager = new MCColoringManager();
 // 启动Ponder引擎
 window.onload = vanilla();

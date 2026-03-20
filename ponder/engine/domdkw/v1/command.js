@@ -6,6 +6,19 @@ function idle(duration) {
   return new Promise(resolve => setTimeout(resolve, duration * 1000));
 }
 
+/**
+ * 获取草方块着色颜色
+ * @param {string} blockType - 方块类型，默认 'grass'
+ * @param {string} biome - 生物群系名称，可选
+ * @returns {THREE.Color} 颜色对象
+ */
+function getGrassColor(blockType = 'grassblock', biome = null) {
+  if (typeof mcColoringManager === 'undefined') return new THREE.Color(0x83bb6d);
+  const color = mcColoringManager.getColor(blockType, biome);
+  if (color) return color;
+  return new THREE.Color(0x83bb6d);
+}
+
 // region moveblock
 // 移动方块函数 - 处理位置变化（优化版）
 function moveBlock(startX, startY, startZ, targetX, targetY, targetZ, duration) {
@@ -90,8 +103,25 @@ function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
   }
   
   // 预先设置材质属性，避免在动画循环中重复设置
-  if (!blockToFade.material.transparent) {
-    blockToFade.material.transparent = true;
+  const setMaterialTransparent = (material) => {
+    if (Array.isArray(material)) {
+      material.forEach(mat => {
+        if (mat) mat.transparent = true;
+      });
+    } else if (material) {
+      material.transparent = true;
+    }
+  };
+  
+  setMaterialTransparent(blockToFade.material);
+  
+  // 处理 overlay 材质的透明度
+  if (blockToFade.children && blockToFade.children.length > 0) {
+    blockToFade.children.forEach(child => {
+      if (child.material) {
+        setMaterialTransparent(child.material);
+      }
+    });
   }
   
   return new Promise(resolve => {
@@ -106,8 +136,30 @@ function fadeBlock(x, y, z, startOpacity, endOpacity, duration) {
       // 应用缓动函数
       const easedProgress = transition.easeInOut(progress);
       
-      // 直接计算透明度，避免使用THREE.MathUtils.lerp
-      blockToFade.material.opacity = startOpacity + (endOpacity - startOpacity) * easedProgress;
+      // 计算当前透明度
+      const currentOpacity = startOpacity + (endOpacity - startOpacity) * easedProgress;
+      
+      // 更新主材质的透明度
+      const updateMaterialOpacity = (material) => {
+        if (Array.isArray(material)) {
+          material.forEach(mat => {
+            if (mat) mat.opacity = currentOpacity;
+          });
+        } else if (material) {
+          material.opacity = currentOpacity;
+        }
+      };
+      
+      updateMaterialOpacity(blockToFade.material);
+      
+      // 更新 overlay 材质的透明度
+      if (blockToFade.children && blockToFade.children.length > 0) {
+        blockToFade.children.forEach(child => {
+          if (child.material) {
+            updateMaterialOpacity(child.material);
+          }
+        });
+      }
       
       // 渲染场景
       renderer.render(scene, camera);
@@ -172,18 +224,29 @@ function setblock(block, x, y, z){
     textures[3]  // -Z north
   ];
   
-  const materials = threejsMaterials.map((texture) => {
+  const materials = threejsMaterials.map((textureData) => {
     const materialOptions = {
       transparent: true,
       opacity: 1,
       color: 0xffffff
     };
     
-    if (texture) {
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.generateMipmaps = false;
-      materialOptions.map = texture;
+    if (textureData) {
+      const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+      const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+      
+      if (texture) {
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        materialOptions.map = texture;
+        
+        if (tintindex >= 0) {
+          materialOptions.color = getGrassColor();
+        }
+      } else {
+        materialOptions.color = new THREE.Color(0xff0000);
+      }
     } else {
       materialOptions.color = new THREE.Color(0xff0000);
     }
@@ -229,7 +292,7 @@ function setblock(block, x, y, z){
         };
         
         if (overlayData.tintindex >= 0) {
-          materialOptions.color = new THREE.Color(0x5D9B3E);
+          materialOptions.color = getGrassColor();
         }
         
         return new THREE.MeshBasicMaterial(materialOptions);
@@ -237,7 +300,7 @@ function setblock(block, x, y, z){
       return new THREE.MeshBasicMaterial({ visible: false });
     });
     
-    const overlayGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const overlayGeometry = new THREE.BoxGeometry(1, 1, 1);
     const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterials);
     overlayMesh.position.set(0, 0, 0);
     overlayMesh.name = `${block.split(',')[0]}_overlay`;
@@ -281,18 +344,29 @@ function setblockfall(block, x, y, z, duration) {
     textures[3]
   ];
   
-  const materials = threejsMaterials.map((texture) => {
+  const materials = threejsMaterials.map((textureData) => {
     const materialOptions = {
       transparent: true,
       opacity: 0,
       color: 0xffffff
     };
     
-    if (texture) {
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.generateMipmaps = false;
-      materialOptions.map = texture;
+    if (textureData) {
+      const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+      const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+      
+      if (texture) {
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        materialOptions.map = texture;
+        
+        if (tintindex >= 0) {
+          materialOptions.color = getGrassColor();
+        }
+      } else {
+        materialOptions.color = new THREE.Color(0xff0000);
+      }
     } else {
       materialOptions.color = new THREE.Color(0xff0000);
     }
@@ -338,7 +412,7 @@ function setblockfall(block, x, y, z, duration) {
         };
         
         if (overlayData.tintindex >= 0) {
-          materialOptions.color = new THREE.Color(0x5D9B3E);
+          materialOptions.color = getGrassColor();
         }
         
         return new THREE.MeshBasicMaterial(materialOptions);
@@ -392,18 +466,29 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
       for(let z = minZ; z <= maxZ; z++){
         removeblock(x, y, z);
         
-        const materials = threejsMaterials.map((texture) => {
+        const materials = threejsMaterials.map((textureData) => {
           const materialOptions = {
             transparent: true,
             opacity: 1,
             color: 0xffffff
           };
           
-          if (texture) {
-            texture.magFilter = THREE.NearestFilter;
-            texture.minFilter = THREE.NearestFilter;
-            texture.generateMipmaps = false;
-            materialOptions.map = texture;
+          if (textureData) {
+            const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+            const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+            
+            if (texture) {
+              texture.magFilter = THREE.NearestFilter;
+              texture.minFilter = THREE.NearestFilter;
+              texture.generateMipmaps = false;
+              materialOptions.map = texture;
+              
+              if (tintindex >= 0) {
+                materialOptions.color = getGrassColor();
+              }
+            } else {
+              materialOptions.color = new THREE.Color(0xff0000);
+            }
           } else {
             materialOptions.color = new THREE.Color(0xff0000);
           }
@@ -448,7 +533,7 @@ function fill(blockStr, x1, y1, z1, x2, y2, z2){
               };
               
               if (overlayData.tintindex >= 0) {
-                materialOptions.color = new THREE.Color(0x5D9B3E);
+                materialOptions.color = getGrassColor();
               }
               
               return new THREE.MeshBasicMaterial(materialOptions);
@@ -523,18 +608,29 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
         removeblock(x, y, z);
         
         // 创建材质数组
-        const materials = threejsMaterials.map((texture) => {
+        const materials = threejsMaterials.map((textureData) => {
           const materialOptions = {
             transparent: true,
             opacity: 0,
             color: 0xffffff
           };
           
-          if (texture) {
-            texture.magFilter = THREE.NearestFilter;
-            texture.minFilter = THREE.NearestFilter;
-            texture.generateMipmaps = false;
-            materialOptions.map = texture;
+          if (textureData) {
+            const texture = typeof textureData === 'object' ? textureData.texture : textureData;
+            const tintindex = typeof textureData === 'object' ? textureData.tintindex : -1;
+            
+            if (texture) {
+              texture.magFilter = THREE.NearestFilter;
+              texture.minFilter = THREE.NearestFilter;
+              texture.generateMipmaps = false;
+              materialOptions.map = texture;
+              
+              if (tintindex >= 0) {
+                materialOptions.color = getGrassColor();
+              }
+            } else {
+              materialOptions.color = new THREE.Color(0xff0000);
+            }
           } else {
             materialOptions.color = new THREE.Color(0xff0000);
           }
@@ -580,7 +676,7 @@ function fillfall(block, x1, y1, z1, x2, y2, z2, duration){
               };
               
               if (overlayData.tintindex >= 0) {
-                materialOptions.color = new THREE.Color(0x5D9B3E);
+                materialOptions.color = getGrassColor();
               }
               
               return new THREE.MeshBasicMaterial(materialOptions);
@@ -1759,7 +1855,27 @@ function removeareaup(x1, y1, z1, x2, y2, z2, duration) {
       for (let i = 0; i < blockGroup.children.length; i++) {
         const blockObj = blockGroup.children[i];
         if (blockObj.material) {
-          blockObj.material.opacity = opacity;
+          if (Array.isArray(blockObj.material)) {
+            blockObj.material.forEach(mat => {
+              if (mat) mat.opacity = opacity;
+            });
+          } else {
+            blockObj.material.opacity = opacity;
+          }
+        }
+        // 更新 overlay 材质的透明度
+        if (blockObj.children) {
+          blockObj.children.forEach(child => {
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => {
+                  if (mat) mat.opacity = opacity;
+                });
+              } else {
+                child.material.opacity = opacity;
+              }
+            }
+          });
         }
       }
       
