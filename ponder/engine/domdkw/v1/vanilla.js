@@ -1582,10 +1582,10 @@ class MCColoringManager {
    */
   getBiome(sceneNum) {
     let biome, gbiome;
-    if (window.Process.global) gbiome = window.Process.global.biome || null;
+    if (window.Process.setting.global) gbiome = window.Process.setting.global.biome || null;
     if (sceneNum){
       //如果有sceneNum，获取scene[i]设置的群系
-      let sbiome = window.Process.scene[sceneNum].biome || null;
+      let sbiome = window.Process.setting.scene[sceneNum].biome || null;
       if (sbiome) gbiome = sbiome;
     }
     if (gbiome){biome = gbiome};
