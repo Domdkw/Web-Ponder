@@ -217,6 +217,80 @@ class MCModelLoader {
     this.modelCache = new Map();
     
     /**
+     * 面方向定义 - 参考 PrismarineJS
+     * 包含每个面的方向向量、遮罩和角点坐标
+     * 用于几何体渲染和 UV 坐标计算
+     */
+    this.elemFaces = {
+      up: {
+        dir: [0, 1, 0],
+        mask1: [1, 1, 0],
+        mask2: [0, 1, 1],
+        corners: [
+          [0, 1, 1, 0, 1],
+          [1, 1, 1, 1, 1],
+          [0, 1, 0, 0, 0],
+          [1, 1, 0, 1, 0]
+        ]
+      },
+      down: {
+        dir: [0, -1, 0],
+        mask1: [1, 1, 0],
+        mask2: [0, 1, 1],
+        corners: [
+          [1, 0, 1, 0, 1],
+          [0, 0, 1, 1, 1],
+          [1, 0, 0, 0, 0],
+          [0, 0, 0, 1, 0]
+        ]
+      },
+      east: {
+        dir: [1, 0, 0],
+        mask1: [1, 1, 0],
+        mask2: [1, 0, 1],
+        corners: [
+          [1, 1, 1, 0, 0],
+          [1, 0, 1, 0, 1],
+          [1, 1, 0, 1, 0],
+          [1, 0, 0, 1, 1]
+        ]
+      },
+      west: {
+        dir: [-1, 0, 0],
+        mask1: [1, 1, 0],
+        mask2: [1, 0, 1],
+        corners: [
+          [0, 1, 0, 0, 0],
+          [0, 0, 0, 0, 1],
+          [0, 1, 1, 1, 0],
+          [0, 0, 1, 1, 1]
+        ]
+      },
+      north: {
+        dir: [0, 0, -1],
+        mask1: [1, 0, 1],
+        mask2: [0, 1, 1],
+        corners: [
+          [1, 0, 0, 0, 1],
+          [0, 0, 0, 1, 1],
+          [1, 1, 0, 0, 0],
+          [0, 1, 0, 1, 0]
+        ]
+      },
+      south: {
+        dir: [0, 0, 1],
+        mask1: [1, 0, 1],
+        mask2: [0, 1, 1],
+        corners: [
+          [0, 0, 1, 0, 1],
+          [1, 0, 1, 1, 1],
+          [0, 1, 1, 0, 0],
+          [1, 1, 1, 1, 0]
+        ]
+      }
+    };
+    
+    /**
      * 基础模型定义，提供常用的方块模型模板
      * 这些是内置的基础模型，可以被其他模型继承和扩展
      */
@@ -352,6 +426,610 @@ class MCModelLoader {
       // 无论成功或失败都要重置加载状态
       this.isLoading = false;
     }
+  }
+
+  /**
+   * 清理方块/纹理名称，移除前缀
+   * @param {string} name - 原始名称
+   * @returns {string} 清理后的名称
+   */
+  cleanupBlockName(name) {
+    if (!name) return name;
+    if (name.startsWith('block/') || name.startsWith('minecraft:block/')) {
+      return name.split('/')[1];
+    }
+    if (name.startsWith('minecraft:')) {
+      return name.substring(10);
+    }
+    return name;
+  }
+
+  /**
+   * 根据面方向和元素坐标自动计算 UV 坐标
+   * 参考 PrismarineJS 的实现
+   * @param {string} faceName - 面名称 (up, down, north, south, east, west)
+   * @param {number[]} from - 元素起始坐标 [x, y, z]
+   * @param {number[]} to - 元素结束坐标 [x, y, z]
+   * @returns {number[]} UV 坐标 [u1, v1, u2, v2]
+   */
+  calculateAutoUV(faceName, from, to) {
+    const _from = from || [0, 0, 0];
+    const _to = to || [16, 16, 16];
+
+    const uvMap = {
+      north: [_to[0], 16 - _to[1], _from[0], 16 - _from[1]],
+      east: [_from[2], 16 - _to[1], _to[2], 16 - _from[1]],
+      south: [_from[0], 16 - _to[1], _to[0], 16 - _from[1]],
+      west: [_from[2], 16 - _to[1], _to[2], 16 - _from[1]],
+      up: [_from[0], _from[2], _to[0], _to[2]],
+      down: [_to[0], _from[2], _from[0], _to[2]]
+    };
+
+    return uvMap[faceName] || [0, 0, 16, 16];
+  }
+
+  /**
+   * 构建旋转矩阵
+   * @param {string} axis - 旋转轴 ('x', 'y', 'z')
+   * @param {number} degree - 旋转角度（度）
+   * @returns {number[][]} 3x3 旋转矩阵
+   */
+  buildRotationMatrix(axis, degree) {
+    const radians = degree / 180 * Math.PI;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+
+    const axisIndex = { x: 0, y: 1, z: 2 }[axis];
+    const axis1 = (axisIndex + 1) % 3;
+    const axis2 = (axisIndex + 2) % 3;
+
+    const matrix = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0]
+    ];
+
+    matrix[axisIndex][axisIndex] = 1;
+    matrix[axis1][axis1] = cos;
+    matrix[axis1][axis2] = -sin;
+    matrix[axis2][axis1] = sin;
+    matrix[axis2][axis2] = cos;
+
+    return matrix;
+  }
+
+  /**
+   * 矩阵与向量相乘
+   * @param {number[][]|null} matrix - 3x3 矩阵
+   * @param {number[]} vector - 3维向量
+   * @returns {number[]} 结果向量
+   */
+  matmul3(matrix, vector) {
+    if (!matrix) return vector;
+    return [
+      matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
+      matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
+      matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2]
+    ];
+  }
+
+  /**
+   * 两个矩阵相乘
+   * @param {number[][]} a - 第一个矩阵
+   * @param {number[][]} b - 第二个矩阵
+   * @returns {number[][]} 结果矩阵
+   */
+  matmulmat3(a, b) {
+    const result = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        for (let k = 0; k < 3; k++) {
+          result[j][i] += a[k][i] * b[j][k];
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 向量加法
+   * @param {number[]} a - 第一个向量
+   * @param {number[]|null} b - 第二个向量
+   * @returns {number[]} 结果向量
+   */
+  vecadd3(a, b) {
+    if (!b) return a;
+    return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  }
+
+  /**
+   * 向量减法
+   * @param {number[]} a - 第一个向量
+   * @param {number[]|null} b - 第二个向量
+   * @returns {number[]} 结果向量
+   */
+  vecsub3(a, b) {
+    if (!b) return a;
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  }
+
+  /**
+   * 预处理模型数据，解析纹理引用和 UV 坐标
+   * 参考 PrismarineJS 的 prepareModel 实现
+   * @param {Object} model - 模型数据
+   * @param {Object} textureAtlas - 纹理图集数据（可选）
+   * @returns {Object} 预处理后的模型数据
+   */
+  prepareModel(model, textureAtlas = null) {
+    if (!model) return model;
+
+    const prepared = JSON.parse(JSON.stringify(model));
+
+    if (prepared.textures) {
+      for (const texKey in prepared.textures) {
+        let root = prepared.textures[texKey];
+        while (root && root.charAt(0) === '#') {
+          const refKey = root.substring(1);
+          root = prepared.textures[refKey];
+        }
+        if (root) {
+          prepared.textures[texKey] = this.cleanupBlockName(root);
+        }
+      }
+    }
+
+    if (prepared.elements) {
+      for (const elem of prepared.elements) {
+        if (!elem.faces) continue;
+
+        for (const faceName of Object.keys(elem.faces)) {
+          const face = elem.faces[faceName];
+
+          if (face.texture) {
+            let textureRef = face.texture;
+            if (textureRef.charAt(0) === '#') {
+              const refKey = textureRef.substring(1);
+              if (prepared.textures && prepared.textures[refKey]) {
+                face.texture = prepared.textures[refKey];
+              }
+            } else {
+              face.texture = this.cleanupBlockName(textureRef);
+            }
+          }
+
+          if (!face.uv && elem.from && elem.to) {
+            face.uv = this.calculateAutoUV(faceName, elem.from, elem.to);
+          }
+
+          if (face.uv && textureAtlas) {
+            const uv = face.uv;
+            const textureInfo = textureAtlas[face.texture];
+            if (textureInfo) {
+              const su = (uv[2] - uv[0]) * textureInfo.su / 16;
+              const sv = (uv[3] - uv[1]) * textureInfo.sv / 16;
+              face.textureData = {
+                u: textureInfo.u + uv[0] * textureInfo.su / 16,
+                v: textureInfo.v + uv[1] * textureInfo.sv / 16,
+                su: su,
+                sv: sv
+              };
+            }
+          }
+        }
+
+        if (elem.rotation) {
+          elem.rotationMatrix = this.buildRotationMatrix(
+            elem.rotation.axis,
+            elem.rotation.angle
+          );
+          elem.rotationOrigin = elem.rotation.origin || [8, 8, 8];
+        }
+      }
+    }
+
+    return prepared;
+  }
+
+  /**
+   * 判断模型是否为完整立方体
+   * 参考 PrismarineJS world.js 的 isCube 实现
+   * @param {Object} model - 模型数据
+   * @returns {boolean} 是否为完整立方体
+   */
+  isCubeModel(model) {
+    if (!model || !model.elements || model.elements.length !== 1) {
+      return false;
+    }
+
+    const elem = model.elements[0];
+    const from = elem.from || [0, 0, 0];
+    const to = elem.to || [16, 16, 16];
+
+    return from[0] === 0 && from[1] === 0 && from[2] === 0 &&
+           to[0] === 16 && to[1] === 16 && to[2] === 16;
+  }
+
+  /**
+   * 判断模型是否为透明/非立方体方块
+   * @param {Object} model - 模型数据
+   * @returns {boolean} 是否为透明方块
+   */
+  isTransparentModel(model) {
+    if (!model || !model.elements || model.elements.length === 0) {
+      return true;
+    }
+
+    const elem = model.elements[0];
+    const from = elem.from || [0, 0, 0];
+    const to = elem.to || [16, 16, 16];
+
+    if (from[0] !== 0 || from[1] !== 0 || from[2] !== 0 ||
+        to[0] !== 16 || to[1] !== 16 || to[2] !== 16) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 获取模型的碰撞箱形状
+   * @param {Object} model - 模型数据
+   * @returns {Array} 形状数组 [[x1, y1, z1, x2, y2, z2], ...]
+   */
+  getModelShapes(model) {
+    if (!model || !model.elements) {
+      return [];
+    }
+
+    const shapes = [];
+    for (const elem of model.elements) {
+      const from = elem.from || [0, 0, 0];
+      const to = elem.to || [16, 16, 16];
+      shapes.push([
+        from[0] / 16, from[1] / 16, from[2] / 16,
+        to[0] / 16, to[1] / 16, to[2] / 16
+      ]);
+    }
+
+    return shapes;
+  }
+
+  /**
+   * 检查面是否应该被剔除（cullface 处理）
+   * @param {Object} face - 面数据
+   * @param {string} faceName - 面名称
+   * @param {Object} neighborBlock - 相邻方块信息 { isCube, transparent, type }
+   * @param {Object} currentBlock - 当前方块信息 { type }
+   * @returns {boolean} true 表示应该剔除该面
+   */
+  shouldCullFace(face, faceName, neighborBlock, currentBlock) {
+    if (!face.cullface) {
+      return false;
+    }
+
+    if (!neighborBlock) {
+      return false;
+    }
+
+    if (neighborBlock.transparent === false && neighborBlock.isCube) {
+      return true;
+    }
+
+    if (currentBlock && currentBlock.name && currentBlock.name.includes('glass')) {
+      if (neighborBlock.type === currentBlock.type) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * 获取面的剔除方向
+   * @param {string} cullface - cullface 值
+   * @returns {number[]} 剔除方向向量
+   */
+  getCullfaceDirection(cullface) {
+    const directions = {
+      down: [0, -1, 0],
+      up: [0, 1, 0],
+      north: [0, 0, -1],
+      south: [0, 0, 1],
+      west: [-1, 0, 0],
+      east: [1, 0, 0]
+    };
+    return directions[cullface] || null;
+  }
+
+  /**
+   * 生成渲染顶点数据
+   * 参考 PrismarineJS models.js 的 renderElement 实现
+   * @param {Object} model - 预处理后的模型数据
+   * @param {Object} options - 渲染选项
+   * @param {number[]} options.position - 方块位置偏移 [x, y, z]
+   * @param {Object} options.textureAtlas - 纹理图集数据
+   * @param {Object} options.globalRotation - 全局旋转 { x, y, z }
+   * @param {Function} options.shouldCullFace - 面剔除判断函数
+   * @returns {Object} 渲染数据 { positions, normals, uvs, colors, indices }
+   */
+  generateRenderData(model, options = {}) {
+    const { position = [0, 0, 0], textureAtlas = null, globalRotation = null, shouldCullFace = null } = options;
+
+    const renderData = {
+      positions: [],
+      normals: [],
+      uvs: [],
+      colors: [],
+      indices: []
+    };
+
+    if (!model || !model.elements || model.elements.length === 0) {
+      console.warn('[MCModelLoader] generateRenderData: No elements in model', model);
+      return renderData;
+    }
+
+    console.log(`[MCModelLoader] generateRenderData: Processing ${model.elements.length} elements`);
+
+    let globalMatrix = null;
+    let globalShift = null;
+
+    if (globalRotation) {
+      for (const axis of ['x', 'y', 'z']) {
+        if (globalRotation[axis] !== undefined && globalRotation[axis] !== 0) {
+          if (!globalMatrix) {
+            globalMatrix = this.buildRotationMatrix(axis, -globalRotation[axis]);
+          } else {
+            globalMatrix = this.matmulmat3(globalMatrix, this.buildRotationMatrix(axis, -globalRotation[axis]));
+          }
+        }
+      }
+
+      if (globalMatrix) {
+        globalShift = this.vecsub3([8, 8, 8], this.matmul3(globalMatrix, [8, 8, 8]));
+      }
+    }
+
+    for (const element of model.elements) {
+      this._renderElement(element, renderData, {
+        position,
+        textureAtlas,
+        globalMatrix,
+        globalShift,
+        shouldCullFace,
+        model
+      });
+    }
+
+    return renderData;
+  }
+
+  /**
+   * 渲染单个元素（内部方法）
+   * @param {Object} element - 元素数据
+   * @param {Object} renderData - 渲染数据累加器
+   * @param {Object} options - 渲染选项
+   */
+  _renderElement(element, renderData, options) {
+    const { position, textureAtlas, globalMatrix, globalShift, shouldCullFace, model } = options;
+
+    if (!element.faces) {
+      console.warn('[MCModelLoader] _renderElement: No faces in element');
+      return;
+    }
+
+    console.log(`[MCModelLoader] _renderElement: Processing element with ${Object.keys(element.faces).length} faces, from:`, element.from, 'to:', element.to);
+
+    let localMatrix = null;
+    let localShift = null;
+
+    if (element.rotation) {
+      localMatrix = this.buildRotationMatrix(element.rotation.axis, element.rotation.angle);
+      localShift = this.vecsub3(
+        element.rotation.origin || [8, 8, 8],
+        this.matmul3(localMatrix, element.rotation.origin || [8, 8, 8])
+      );
+    }
+
+    for (const faceName in element.faces) {
+      const face = element.faces[faceName];
+      const elemFace = this.elemFaces[faceName];
+
+      if (!elemFace) continue;
+
+      const { corners } = elemFace;
+      let dir = elemFace.dir;
+
+      if (shouldCullFace && face.cullface) {
+        const cullDir = this.getCullfaceDirection(face.cullface);
+        if (shouldCullFace(face, faceName, cullDir)) {
+          continue;
+        }
+      }
+
+      if (globalMatrix) {
+        dir = this.matmul3(globalMatrix, dir);
+      }
+
+      const minx = element.from ? element.from[0] : 0;
+      const miny = element.from ? element.from[1] : 0;
+      const minz = element.from ? element.from[2] : 0;
+      const maxx = element.to ? element.to[0] : 16;
+      const maxy = element.to ? element.to[1] : 16;
+      const maxz = element.to ? element.to[2] : 16;
+
+      let u = 0, v = 0, su = 1, sv = 1;
+      
+      // 当使用纹理图集时，纹理已经通过 repeat/offset 映射到正确位置
+      // 所以 UV 坐标应该直接使用 0-1 范围（相对于单个纹理格子）
+      if (face.uv) {
+        u = face.uv[0] / 16;
+        v = face.uv[1] / 16;
+        su = (face.uv[2] - face.uv[0]) / 16;
+        sv = (face.uv[3] - face.uv[1]) / 16;
+      }
+      
+      console.log(`[MCModelLoader] Face ${faceName}: uv=${JSON.stringify(face.uv)}, texture=${face.texture}, calculated u=${u.toFixed(3)}, v=${v.toFixed(3)}, su=${su.toFixed(3)}, sv=${sv.toFixed(3)}`);
+
+      const r = face.rotation || 0;
+      const uvcs = Math.cos(r * Math.PI / 180);
+      const uvsn = -Math.sin(r * Math.PI / 180);
+
+      const ndx = Math.floor(renderData.positions.length / 3);
+
+      for (const pos of corners) {
+        let vertex = [
+          (pos[0] ? maxx : minx),
+          (pos[1] ? maxy : miny),
+          (pos[2] ? maxz : minz)
+        ];
+
+        vertex = this.vecadd3(this.matmul3(localMatrix, vertex), localShift);
+        vertex = this.vecadd3(this.matmul3(globalMatrix, vertex), globalShift);
+        vertex = vertex.map(val => val / 16);
+
+        renderData.positions.push(
+          vertex[0] + position[0],
+          vertex[1] + position[1],
+          vertex[2] + position[2]
+        );
+
+        renderData.normals.push(...dir);
+
+        const baseu = (pos[3] - 0.5) * uvcs - (pos[4] - 0.5) * uvsn + 0.5;
+        const basev = (pos[3] - 0.5) * uvsn + (pos[4] - 0.5) * uvcs + 0.5;
+        renderData.uvs.push(baseu * su + u, basev * sv + v);
+
+        renderData.colors.push(1, 1, 1);
+      }
+
+      renderData.indices.push(
+        ndx, ndx + 1, ndx + 2,
+        ndx + 2, ndx + 1, ndx + 3
+      );
+    }
+  }
+
+  /**
+   * 将渲染数据转换为 Float32Array
+   * @param {Object} renderData - 渲染数据
+   * @returns {Object} 类型化数组数据
+   */
+  finalizeRenderData(renderData) {
+    return {
+      positions: new Float32Array(renderData.positions),
+      normals: new Float32Array(renderData.normals),
+      uvs: new Float32Array(renderData.uvs),
+      colors: new Float32Array(renderData.colors),
+      indices: new Uint32Array(renderData.indices)
+    };
+  }
+
+  /**
+   * 创建 THREE.BufferGeometry
+   * @param {Object} model - 预处理后的模型数据
+   * @param {Object} options - 渲染选项
+   * @returns {THREE.BufferGeometry|null} Three.js 几何体
+   */
+  createBufferGeometry(model, options = {}) {
+    const renderData = this.generateRenderData(model, options);
+    
+    if (renderData.positions.length === 0) {
+      console.warn('[MCModelLoader] generateRenderData returned empty positions');
+      return null;
+    }
+
+    console.log(`[MCModelLoader] Generated geometry: ${renderData.positions.length / 3} vertices, ${renderData.indices.length / 3} triangles`);
+    
+    // 检查顶点位置范围
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < renderData.positions.length; i += 3) {
+      minX = Math.min(minX, renderData.positions[i]);
+      maxX = Math.max(maxX, renderData.positions[i]);
+      minY = Math.min(minY, renderData.positions[i + 1]);
+      maxY = Math.max(maxY, renderData.positions[i + 1]);
+      minZ = Math.min(minZ, renderData.positions[i + 2]);
+      maxZ = Math.max(maxZ, renderData.positions[i + 2]);
+    }
+    console.log(`[MCModelLoader] Position range: x=[${minX.toFixed(3)}, ${maxX.toFixed(3)}], y=[${minY.toFixed(3)}, ${maxY.toFixed(3)}], z=[${minZ.toFixed(3)}, ${maxZ.toFixed(3)}]`);
+    
+    // 检查 UV 范围
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    for (let i = 0; i < renderData.uvs.length; i += 2) {
+      minU = Math.min(minU, renderData.uvs[i]);
+      maxU = Math.max(maxU, renderData.uvs[i]);
+      minV = Math.min(minV, renderData.uvs[i + 1]);
+      maxV = Math.max(maxV, renderData.uvs[i + 1]);
+    }
+    console.log(`[MCModelLoader] UV range: u=[${minU.toFixed(3)}, ${maxU.toFixed(3)}], v=[${minV.toFixed(3)}, ${maxV.toFixed(3)}]`);
+
+    const geometry = new THREE.BufferGeometry();
+    
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(renderData.positions, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(renderData.normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(renderData.uvs, 2));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(renderData.colors, 3));
+    geometry.setIndex(renderData.indices);
+    
+    geometry.computeBoundingSphere();
+    
+    return geometry;
+  }
+
+  /**
+   * 为方块创建完整的渲染网格
+   * 包含几何体和材质
+   * @param {string} blockId - 方块ID
+   * @param {Object} textureAtlas - 纹理图集数据
+   * @param {Object} options - 渲染选项
+   * @returns {Object} { geometry, isCube, elements }
+   */
+  createBlockRenderData(blockId, textureAtlas = null, options = {}) {
+    const model = this.getModel(blockId, textureAtlas);
+    
+    if (!model) {
+      return { geometry: null, isCube: false, elements: [] };
+    }
+
+    const isCube = this.isCubeModel(model);
+    
+    if (isCube) {
+      return {
+        geometry: new THREE.BoxGeometry(1, 1, 1),
+        isCube: true,
+        elements: model.elements
+      };
+    }
+
+    const geometry = this.createBufferGeometry(model, {
+      position: [0, 0, 0],
+      textureAtlas,
+      ...options
+    });
+
+    return {
+      geometry,
+      isCube: false,
+      elements: model.elements
+    };
+  }
+
+  /**
+   * 获取方块模型的面数
+   * @param {Object} model - 模型数据
+   * @returns {number} 面数
+   */
+  getFaceCount(model) {
+    if (!model || !model.elements) return 0;
+    
+    let count = 0;
+    for (const elem of model.elements) {
+      if (elem.faces) {
+        count += Object.keys(elem.faces).length;
+      }
+    }
+    return count;
   }
 
   /**
@@ -561,13 +1239,13 @@ class MCModelLoader {
   }
 
   /**
-   * 获取完整的模型数据，包括解析后的纹理
+   * 获取完整的模型数据，包括解析后的纹理和预处理
    * @param {string} modelId - 模型ID
+   * @param {Object} textureAtlas - 纹理图集数据（可选）
    * @returns {Object|null} 完整的模型数据，失败返回null
    */
-  getModel(modelId) {
-    // 检查模型数据是否已加载
-    if (!this.modelData) {
+  getModel(modelId, textureAtlas = null) {
+    if (!this.modelData && Object.keys(this.baseModels).length === 0) {
       console.warn('[MCModelLoader] 模型数据未加载，请先调用loadModelData');
       return null;
     }
@@ -575,20 +1253,36 @@ class MCModelLoader {
     // 解析模型数据
     const modelData = this.resolveModel(modelId);
     if (!modelData) {
+      console.warn(`[MCModelLoader] getModel: Model not found: ${modelId}`);
       return null;
     }
 
-    // 解析纹理引用
-    const resolvedTextures = this.resolveTextures(modelData);
+    const preparedModel = this.prepareModel(modelData, textureAtlas);
 
-    // 返回完整的模型数据
+    console.log(`[MCModelLoader] getModel: ${modelId}, elements: ${preparedModel.elements ? preparedModel.elements.length : 0}`);
+
     return {
       id: modelId,
-      elements: modelData.elements || [],
-      textures: resolvedTextures,
-      display: modelData.display,
-      ambientocclusion: modelData.ambientocclusion !== undefined ? modelData.ambientocclusion : true
+      elements: preparedModel.elements || [],
+      textures: preparedModel.textures || {},
+      display: preparedModel.display,
+      ambientocclusion: preparedModel.ambientocclusion !== undefined ? preparedModel.ambientocclusion : true,
+      elemFaces: this.elemFaces
     };
+  }
+
+  /**
+   * 获取预处理后的模型数据（包含 UV 和纹理数据）
+   * @param {string} modelId - 模型ID
+   * @param {Object} textureAtlas - 纹理图集数据
+   * @returns {Object|null} 预处理后的模型数据
+   */
+  getPreparedModel(modelId, textureAtlas) {
+    const modelData = this.resolveModel(modelId);
+    if (!modelData) {
+      return null;
+    }
+    return this.prepareModel(modelData, textureAtlas);
   }
 
   /**
@@ -1581,8 +2275,8 @@ class MCColoringManager {
    * @returns {string} 当前生物群系名称
    */
   getBiome(sceneNum) {
-    let biome, gbiome;
-    if (window.Process.setting.global) gbiome = window.Process.setting.global.biome || null;
+    let biome = null, gbiome;
+    if (window.Process.setting) if (window.Process.setting.global) gbiome = window.Process.setting.global.biome || null;
     if (sceneNum){
       //如果有sceneNum，获取scene[i]设置的群系
       let sbiome = window.Process.setting.scene[sceneNum].biome || null;

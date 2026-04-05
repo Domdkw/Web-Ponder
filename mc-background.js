@@ -88,6 +88,7 @@ function loadMcPanorama() {
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.gammaOutput = false;
   renderer.domElement.style.zIndex = '-1'; // 设置低于前景画布的z-index
+  THREE.ColorManagement.enabled = false;// 关闭颜色管理
   window.addEventListener('resize', onWindowResize, false);
 
   function onWindowResize() {

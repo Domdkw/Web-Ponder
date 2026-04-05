@@ -38,6 +38,7 @@
         "fill('minecraft:grass_block',3,0,0,4,0,0)",
         "fill('minecraft:stone',3,0,1,4,0,1)",
         "idle(1)",
+        "setblock('minecraft:torch',3,0,2)",
         "removeblockup(3,0,0,2)",
         "idle(2)",
         "removeblockup(3,0,1,2)"
